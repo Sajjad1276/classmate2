@@ -13,19 +13,24 @@ router = Router(name="common")
 async def cmd_help(message: Message) -> None:
     await message.answer(
         "<b>راهنمای ClassMate 2</b>\n\n"
-        "/start — شروع\n"
+        "<b>شروع</b>\n"
+        "/start — منوی اصلی\n"
         "/classes — کلاس‌های من\n"
-        "/school_new نام | سال — ساخت مدرسه (مدیر کل)\n"
-        "/class_new شناسه_مدرسه | پایه | شعبه | نام — ساخت کلاس\n"
-        "/class_code شناسه_کلاس — کد اتصال و عضویت\n"
-        "/connect کد — اتصال گروه\n"
-        "/join کد — عضویت در کلاس\n"
-        "/homework [شناسه] — تکالیف تأییدشده\n"
-        "/exams [شناسه] — امتحانات\n"
-        "/today [شناسه] — گزارش امروز\n"
-        "/week [شناسه] — برنامه هفتگی\n"
-        "/pending [شناسه] — در انتظار تأیید\n"
-        "/cancel — لغو فرم",
+        "/cancel — لغو فرم\n\n"
+        "<b>راه‌اندازی</b>\n"
+        "/school_new نام | سال [| timezone]\n"
+        "/class_new شناسه_مدرسه | پایه | شعبه | نام\n"
+        "/class_code شناسه_کلاس\n"
+        "/connect کد — در گروه\n"
+        "/join کد — در خصوصی\n\n"
+        "<b>ثبت</b>\n"
+        "/subject_add نام درس\n"
+        "/new_homework درس | عنوان | توضیح | موعد؟\n"
+        "/new_exam درس | عنوان | محدوده | زمان\n"
+        "/new_report متن [| عنوان]\n"
+        "/timetable_set روز | زنگ | درس | شروع-پایان\n\n"
+        "<b>مشاهده</b>\n"
+        "/homework /exams /today /week /pending",
         reply_markup=main_menu(),
     )
 
@@ -38,4 +43,4 @@ async def cmd_cancel(message: Message, state: FSMContext) -> None:
 
 @router.message(F.text == "کلاس‌های من")
 async def btn_classes(message: Message) -> None:
-    await message.answer("برای فهرست کلاس‌ها از /classes استفاده کن.")
+    await message.answer("از فرمان /classes استفاده کن.")
