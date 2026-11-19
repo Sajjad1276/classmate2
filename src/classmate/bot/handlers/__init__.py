@@ -1,14 +1,13 @@
 from aiogram import Router
 
-from classmate.bot.handlers import common, start
+from classmate.bot.handlers import approvals, common, onboarding, queries, start
 
 
 def setup_routers() -> Router:
-    """Assemble all domain routers. Order matters."""
     root = Router(name="root")
-
-    # Specific routers first
     root.include_router(start.router)
+    root.include_router(onboarding.router)
+    root.include_router(queries.router)
+    root.include_router(approvals.router)
     root.include_router(common.router)
-
     return root
