@@ -2,72 +2,82 @@
 
 **A cleaner, more maintainable multi-school Telegram classroom memory system.**
 
-ClassMate 2 is the next evolution of the ClassMate idea: structured storage of daily reports, homework, exams, timetables and reminders — with human approval — delivered through Telegram.
+ClassMate 2 stores daily reports, homework, exams, timetables and reminders with human approval — without AI in the MVP.
 
-This version is built from the ground up with production-grade practices that were missing or incomplete in the first version.
-
-## Why ClassMate 2?
-
-Compared to the original ClassMate MVP:
+## Why ClassMate 2 is ahead of v1
 
 | Area | ClassMate 1 | ClassMate 2 |
 |------|-------------|-------------|
-| Handlers | One 70k+ file | Split routers by domain |
-| Business logic | Mixed in handlers | Dedicated services layer |
-| Dependency injection | Manual session management | Middleware-based DI |
-| Roles & statuses | Plain strings | Proper Python Enums |
-| FSM storage | Memory only | Redis-ready (Memory fallback) |
-| Type safety | Partial | Strong typing + mypy-ready |
-| Testing | Minimal | Service + permission tests from day 1 |
-| Project structure | Flat | Clear layers (core / db / domain / services / bot) |
+| Handlers | One huge file | Split routers by domain |
+| Business logic | Mixed in handlers | Services layer |
+| DI | Manual sessions | `DbSessionMiddleware` |
+| Roles / statuses | Strings | Python `StrEnum` |
+| FSM | Memory only | Redis-ready + Memory fallback |
+| Worker | Basic | Lease + retry + recovery |
+| Tests | Minimal | Users + enums + growing |
+| Typing / CI | Partial | ruff + pytest + mypy-ready |
 
 ## Stack
 
-- Python 3.12+
-- aiogram 3.x
-- SQLAlchemy 2 (async) + asyncpg
-- Alembic
-- PostgreSQL
-- Redis (for FSM in production)
+- Python 3.12+, aiogram 3, SQLAlchemy 2 async, asyncpg, Alembic
+- PostgreSQL, Redis (FSM in production)
 - Docker Compose
-- pytest + ruff + mypy
 
 ## Quick start
 
 ```bash
 cp .env.example .env
-# Set BOT_TOKEN and BOOTSTRAP_ADMIN_IDS
+# BOT_TOKEN + BOOTSTRAP_ADMIN_IDS (your Telegram numeric id)
 docker compose up --build
 ```
 
-## Project layout
+Migrations:
+
+```bash
+alembic upgrade head
+```
+
+## First-time flow
+
+1. `/start` in private
+2. `/school_new نام مدرسه | ۱۴۰۵-۱۴۰۶`
+3. `/class_new شناسه_مدرسه | دهم | ۱۰۴ | دهم ۱۰۴`
+4. `/class_code شناسه_کلاس` → get connect + join codes
+5. In group: `/connect کد`
+6. Students: `/join کد` in private
+7. `/subject_add ریاضی`
+8. `/new_homework ریاضی | تمرین | مسائل ۱-۵ | ۱۴۰۵/۰۸/۰۱`
+9. Approver taps تأیید on the group message
+10. `/homework` / `/exams` / `/today` / `/week`
+
+## Commands (core)
+
+- Onboarding: `/school_new`, `/class_new`, `/class_code`, `/connect`, `/join`, `/classes`
+- Records: `/subject_add`, `/new_homework`, `/new_exam`, `/new_report`, `/timetable_set`
+- Queries: `/homework`, `/exams`, `/today`, `/week`, `/pending`
+- Approval: inline buttons + `/pending`
+
+## Layout
 
 ```
 src/classmate/
-├── core/           # config, enums, logging
-├── db/             # models, session, base
-├── domain/         # pure business rules (dates, normalization)
-├── services/       # use-cases and permissions
+├── core/          # config, enums, logging
+├── db/            # models, session
+├── domain/        # pure date rules
+├── services/      # permissions, records, notifications, users
 ├── bot/
-│   ├── handlers/   # one router per domain
+│   ├── handlers/  # start, onboarding, records, queries, approvals, common
 │   ├── middlewares.py
-│   ├── keyboards.py
 │   └── main.py
-└── worker/         # reminder delivery process
+└── worker/        # durable reminder delivery
 ```
 
-## Development principles
+## Principles
 
-1. **Thin handlers** — parse input, call service, reply.
-2. **Business logic lives in services** — testable without Telegram.
-3. **Enums everywhere** for roles and record statuses.
-4. **Explicit tenant isolation** — never trust a user-supplied class_id without membership check.
-5. **Durable reminders** — database-backed jobs with leasing.
+1. Thin handlers — services own business rules.
+2. Enums for roles and record lifecycle.
+3. Never trust a class_id without membership/role check.
+4. Approved-only lists; pending is separate.
+5. Reminders are durable jobs with leasing.
 
-## Status
-
-Foundation is being built. Core onboarding, records, approval flow and reminders will be added incrementally with tests.
-
----
-
-Built to be one step ahead.
+Built to stay one step ahead of ClassMate 1.
