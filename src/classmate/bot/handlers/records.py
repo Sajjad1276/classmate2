@@ -12,7 +12,6 @@ from classmate.domain.dates import parse_school_date, parse_school_datetime
 from classmate.services.permissions import get_class_with_school, is_class_manager, user_can_access_class
 from classmate.services.records import (
     add_subject,
-    create_daily_report,
     create_exam,
     create_homework,
     get_group_context,
@@ -167,11 +166,9 @@ async def new_report(message: Message, session: AsyncSession) -> None:
             "گزارش بدون پیش‌نمایش و تأیید شما در گروه منتشر نمی‌شود."
         )
         return
-    user = await _user(session, message.from_user, private=True)
     await message.answer(
         "برای ثبت گزارش روزانه از پنل ربات استفاده کنید: «ثبت اطلاعات ← ثبت گزارش روزانه». "
-        "پیش از ارسال، متن را می‌توانید ویرایش یا لغو کنید.",
-        reply_markup=await _private_menu(session, user),
+        "پیش از ارسال، متن را می‌توانید ویرایش یا لغو کنید."
     )
 
 
