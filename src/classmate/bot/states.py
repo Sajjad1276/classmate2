@@ -1,10 +1,56 @@
 from aiogram.fsm.state import State, StatesGroup
 
 
-class RecordWizard(StatesGroup):
-    choosing_class = State()
-    choosing_subject = State()
-    entering_title = State()
-    entering_body = State()
-    entering_due = State()
-    confirming = State()
+class HomeworkForm(StatesGroup):
+    class_id = State()
+    subject = State()
+    title = State()
+    description = State()
+    due = State()
+
+
+class ExamForm(StatesGroup):
+    class_id = State()
+    subject = State()
+    title = State()
+    scope = State()
+    when = State()
+
+
+class ReportForm(StatesGroup):
+    class_id = State()
+    body = State()
+    title = State()
+
+
+class SchoolForm(StatesGroup):
+    name = State()
+    year = State()
+
+
+class ClassForm(StatesGroup):
+    school_id = State()
+    grade = State()
+    section = State()
+    name = State()
+
+
+class JoinForm(StatesGroup):
+    code = State()
+
+
+class ConnectForm(StatesGroup):
+    code = State()
+
+
+class SubjectForm(StatesGroup):
+    class_id = State()
+    name = State()
+
+
+class TimetableForm(StatesGroup):
+    class_id = State()
+    day = State()
+    period = State()
+    subject = State()
+    time_range = State()
