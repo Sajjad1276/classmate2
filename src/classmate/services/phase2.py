@@ -19,21 +19,25 @@ async def approved_homeworks_for_student(session: AsyncSession, class_id: int):
 
 
 async def save_submission(session: AsyncSession, homework_id: int, student_id: int, text: str | None = None, file_id: str | None = None, file_type: str | None = None) -> HomeworkSubmission:
-    homework = await session.get(Homework, homework_id)
+    homework = await session.scalar(
+        select(Homework).where(Homework.id == homework_id).with_for_update()
+    )
     if homework is None or homework.status != RecordStatus.APPROVED:
         raise ValueError("این تکلیف در دسترس نیست.")
     student = await session.get(User, student_id)
-    membership_id = await session.scalar(
-        select(ClassMembership.id).where(
+    membership = await session.scalar(
+        select(ClassMembership)
+        .where(
             ClassMembership.class_id == homework.class_id,
             ClassMembership.user_id == student_id,
             ClassMembership.is_active.is_(True),
         )
+        .with_for_update()
     )
     if (
         student is None
         or not student.is_active
-        or membership_id is None
+        or membership is None
         or not await user_can_access_class(session, student, homework.class_id)
     ):
         raise PermissionError("فقط عضو فعال کلاس می‌تواند پاسخ تکلیف را ارسال کند.")
