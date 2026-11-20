@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.core.enums import RecordStatus
-from classmate.db.models import Attendance, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, Subject, User
+from classmate.db.models import AcademicYear, Attendance, ClassGroup, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, School, Subject, User
 from classmate.services.permissions import user_can_access_class
 
 
@@ -53,20 +53,71 @@ async def save_submission(session: AsyncSession, homework_id: int, student_id: i
     return item
 
 
-async def student_grades(session: AsyncSession, student_id: int):
-    return list((await session.execute(
-        select(Grade, Subject).join(Subject, Grade.subject_id == Subject.id)
-        .where(Grade.student_id == student_id).order_by(Grade.created_at.desc()).limit(50)
-    )).all())
-
-
-async def student_attendance(session: AsyncSession, student_id: int, class_ids: list[int]):
+async def student_grades(
+    session: AsyncSession, student_id: int, class_ids: list[int]
+):
     if not class_ids:
         return []
-    return list((await session.execute(
-        select(Attendance).where(Attendance.student_id == student_id, Attendance.class_id.in_(class_ids))
-        .order_by(Attendance.attendance_date.desc()).limit(60)
-    )).scalars().all())
+    return list(
+        (
+            await session.execute(
+                select(Grade, Subject)
+                .join(Subject, Grade.subject_id == Subject.id)
+                .join(
+                    ClassMembership,
+                    (ClassMembership.class_id == Grade.class_id)
+                    & (ClassMembership.user_id == Grade.student_id)
+                    & ClassMembership.is_active.is_(True),
+                )
+                .join(ClassGroup, Grade.class_id == ClassGroup.id)
+                .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+                .join(School, AcademicYear.school_id == School.id)
+                .join(User, Grade.student_id == User.id)
+                .where(
+                    Grade.student_id == student_id,
+                    Grade.class_id.in_(class_ids),
+                    User.is_active.is_(True),
+                    ClassGroup.is_active.is_(True),
+                    School.is_active.is_(True),
+                )
+                .order_by(Grade.created_at.desc())
+                .limit(50)
+            )
+        ).all()
+    )
+
+
+async def student_attendance(
+    session: AsyncSession, student_id: int, class_ids: list[int]
+):
+    if not class_ids:
+        return []
+    return list(
+        (
+            await session.execute(
+                select(Attendance)
+                .join(
+                    ClassMembership,
+                    (ClassMembership.class_id == Attendance.class_id)
+                    & (ClassMembership.user_id == Attendance.student_id)
+                    & ClassMembership.is_active.is_(True),
+                )
+                .join(ClassGroup, Attendance.class_id == ClassGroup.id)
+                .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+                .join(School, AcademicYear.school_id == School.id)
+                .join(User, Attendance.student_id == User.id)
+                .where(
+                    Attendance.student_id == student_id,
+                    Attendance.class_id.in_(class_ids),
+                    User.is_active.is_(True),
+                    ClassGroup.is_active.is_(True),
+                    School.is_active.is_(True),
+                )
+                .order_by(Attendance.attendance_date.desc())
+                .limit(60)
+            )
+        ).scalars().all()
+    )
 
 
 async def active_polls(session: AsyncSession, class_ids: list[int]):
