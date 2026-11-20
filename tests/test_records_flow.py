@@ -299,3 +299,46 @@ async def test_expired_join_code(world):
     )
     assert found is not None
     assert found.member_join_code_expires_at < datetime.now(timezone.utc)
+
+
+
+@pytest.mark.asyncio
+async def test_record_services_reject_unauthorized_approver(world):
+    session = world["session"]
+    homework = await create_homework(
+        session,
+        world["class"].id,
+        world["subject"],
+        "رکورد محرمانه",
+        "شرح",
+        None,
+        world["manager"].id,
+    )
+
+    ok, message = await approve_record(
+        session,
+        EntityType.HOMEWORK.value,
+        homework.id,
+        world["student"].id,
+        world["school"].id,
+        world["class"].id,
+        "Asia/Tehran",
+    )
+    assert ok is False
+    assert "اجازه تأیید" in message
+    await session.refresh(homework)
+    assert homework.status == RecordStatus.PENDING
+
+    rejected, message = await reject_record(
+        session,
+        EntityType.HOMEWORK.value,
+        homework.id,
+        world["student"].id,
+        world["school"].id,
+        world["class"].id,
+        note="تلاش غیرمجاز",
+    )
+    assert rejected is False
+    assert "اجازه رد" in message
+    await session.refresh(homework)
+    assert homework.status == RecordStatus.PENDING
