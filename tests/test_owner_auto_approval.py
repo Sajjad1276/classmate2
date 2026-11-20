@@ -161,7 +161,20 @@ async def test_non_owner_created_records_still_require_approval(world, creator_k
         creator.id,
     )
 
-    for record in (homework, exam, report):
-        assert record.status == RecordStatus.PENDING
-        assert record.approved_by is None
-        assert record.approved_at is None
+    for entity_type, record in (
+        ("homework", homework),
+        ("exam", exam),
+        ("report", report),
+    ):
+        expected = (
+            RecordStatus.APPROVED
+            if creator_key == "approver" and entity_type == "report"
+            else RecordStatus.PENDING
+        )
+        assert record.status == expected
+        if expected == RecordStatus.APPROVED:
+            assert record.approved_by == creator.id
+            assert record.approved_at is not None
+        else:
+            assert record.approved_by is None
+            assert record.approved_at is None
