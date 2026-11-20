@@ -212,7 +212,7 @@ async def _creation_approval_context(
     *,
     include_trusted_approver: bool = False,
 ) -> tuple[bool, int, str]:
-    """Return whether the creator owns class publishing rights and the school context."""
+    """Return whether the creator has direct publishing authority and the school context."""
     context = await get_class_with_school(session, class_id)
     if context is None:
         raise ValueError("کلاس یا مدرسه فعال نیست.")
@@ -313,7 +313,7 @@ async def _record_auto_approval(
             entity_id=entity_id,
             actor_id=actor_id,
             action="AUTO_APPROVED",
-            note="Published automatically because the creator manages this class.",
+            note="Published automatically because the creator has direct publishing authority.",
         )
     )
     await audit(
