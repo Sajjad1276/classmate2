@@ -1,6 +1,6 @@
 """Phase-two learning workflow services."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from math import isfinite
 from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -138,7 +138,7 @@ async def save_attendance(
     *,
     class_id: int,
     student_id: int,
-    attendance_date,
+    attendance_date: date,
     status: str,
     marked_by: int,
     note: str | None = None,
@@ -229,6 +229,7 @@ async def save_attendance(
     attendance = await session.get(Attendance, attendance_id)
     if attendance is None:
         raise RuntimeError("ثبت حضور‌وغیاب انجام نشد.")
+    await session.refresh(attendance)
     return attendance
 
 
