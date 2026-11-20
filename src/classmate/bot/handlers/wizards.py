@@ -274,9 +274,9 @@ async def entry_group(callback: CallbackQuery, state: FSMContext, session: Async
 async def entry_school(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     if not await _require_private_callback(callback):
         return
-    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
-    if not user.is_platform_admin:
-        await callback.answer("دسترسی مدیر سامانه لازم است.", show_alert=True)
+    user = await get_user(session, callback.from_user, private=True)
+    if not user.is_active or not user.is_platform_admin:
+        await callback.answer("دسترسی مدیر فعال سامانه لازم است.", show_alert=True)
         return
     await delete_panel(callback.message)
     await state.set_state(SchoolForm.name)
@@ -289,7 +289,10 @@ async def entry_class(callback: CallbackQuery, state: FSMContext, session: Async
     if not await _require_private_callback(callback):
         return
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    user = await get_user(session, callback.from_user, private=True)
+    if not user.is_active:
+        await callback.answer("حساب کاربری شما غیرفعال است.", show_alert=True)
+        return
     q = select(School).where(School.is_active.is_(True)).order_by(School.name)
     if not user.is_platform_admin:
         q = (
