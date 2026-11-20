@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.bot.handlers.ui import delete_panel, get_user, run_view
 from classmate.bot.keyboards import group_panel
+from classmate.services.permissions import get_class_with_school, user_can_access_class
 from classmate.services.records import get_group_context
-from classmate.services.permissions import user_can_access_class
 
 router = Router(name="group")
 logger = logging.getLogger(__name__)
