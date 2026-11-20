@@ -35,6 +35,7 @@ def dashboard_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📅 تقویم ۷ روز آینده", callback_data="p1:calendar")],
         [InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="p1:announcements")],
+        [InlineKeyboardButton(text="🔔 تنظیم اعلان‌ها", callback_data="p1:preferences")],
         [InlineKeyboardButton(text="🔄 به‌روزرسانی داشبورد", callback_data="p1:dashboard")],
     ])
 
@@ -101,6 +102,24 @@ async def calendar_entry(callback: CallbackQuery, session: AsyncSession) -> None
             callback.message,
             "🏫 کلاس موردنظر برای مشاهده تقویم را انتخاب کنید:",
             class_picker(classes, action="calendar"),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "p1:preferences")
+async def preferences_entry(callback: CallbackQuery, session: AsyncSession) -> None:
+    user = await get_user(session, callback.from_user)
+    classes = await classes_for_user(session, user)
+    await delete_panel(callback.message)
+    if not classes:
+        await callback.message.answer("برای تنظیم اعلان‌ها ابتدا عضو یک کلاس شوید.")
+    elif len(classes) == 1:
+        await _render_preferences(callback.message, session, user, classes[0][0], classes[0][1])
+    else:
+        await render_panel(
+            callback.message,
+            "🏫 کلاس موردنظر برای تنظیم اعلان‌ها را انتخاب کنید:",
+            class_picker(classes, action="prefs"),
         )
     await callback.answer()
 

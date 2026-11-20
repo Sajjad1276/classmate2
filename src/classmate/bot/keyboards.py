@@ -17,18 +17,17 @@ def main_menu(
     is_admin: bool = False,
 ) -> ReplyKeyboardMarkup:
     rows: list[list[KeyboardButton]] = [
-        [KeyboardButton(text="🏠 داشبورد من"), KeyboardButton(text="🏫 کلاس‌های من")],
-        [KeyboardButton(text="🎓 بخش آموزشی"), KeyboardButton(text="➕ ثبت اطلاعات")],
-        [KeyboardButton(text="🔎 جست‌وجو"), KeyboardButton(text="📣 اطلاعیه‌ها")],
-        [KeyboardButton(text="🔔 اعلان‌ها"), KeyboardButton(text="🆘 پشتیبانی")],
+        [KeyboardButton(text="🏠 داشبورد من", style="primary"), KeyboardButton(text="🏫 کلاس‌های من")],
+        [KeyboardButton(text="🎓 بخش آموزشی", style="primary"), KeyboardButton(text="🔎 جست‌وجو")],
+        [KeyboardButton(text="🔑 ورود با کد دعوت", style="success")],
     ]
+    if is_manager or is_admin:
+        rows.append([KeyboardButton(text="➕ ثبت اطلاعات", style="success"), KeyboardButton(text="⚙️ مدیریت", style="primary")])
     if is_approver:
         rows.append([KeyboardButton(text="🕓 موارد در انتظار بررسی")])
-    if is_manager:
-        rows.append([KeyboardButton(text="⚙️ مدیریت")])
     if is_admin:
         rows.append([KeyboardButton(text="🏛 مدیریت سامانه")])
-    rows.append([KeyboardButton(text="❓ راهنما"), KeyboardButton(text="🔑 ورود با کد دعوت")])
+    rows.append([KeyboardButton(text="❓ راهنما"), KeyboardButton(text="🆘 پشتیبانی")])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
 
 
