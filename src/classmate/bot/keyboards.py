@@ -24,20 +24,22 @@ def main_menu(
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
 
 
-def cancel_kb() -> ReplyKeyboardMarkup:
+def cancel_kb(*, selective: bool = False) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="❌ انصراف")]],
         resize_keyboard=True,
+        selective=selective,
     )
 
 
-def skip_or_cancel_kb() -> ReplyKeyboardMarkup:
+def skip_or_cancel_kb(*, selective: bool = False) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="⏭ بدون موعد")],
             [KeyboardButton(text="❌ انصراف")],
         ],
         resize_keyboard=True,
+        selective=selective,
     )
 
 
@@ -76,7 +78,6 @@ def admin_menu() -> InlineKeyboardMarkup:
 
 
 def group_panel(*, class_id: int, class_name: str = "") -> InlineKeyboardMarkup:
-    """Inline control panel for a connected class group."""
     cid = class_id
     return InlineKeyboardMarkup(
         inline_keyboard=[

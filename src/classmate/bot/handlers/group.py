@@ -25,11 +25,11 @@ PANEL_TRIGGERS = {
 }
 
 
-async def _panel_text(class_name: str) -> str:
+def panel_text(class_name: str) -> str:
     return (
         f"📌 <b>پنل کلاس {escape(class_name)}</b>\n\n"
         "مشاهده یا ثبت را از دکمه‌ها انتخاب کن.\n"
-        "برای باز کردن دوباره همین پنل، در گروه بنویس: <b>منو</b>"
+        "برای باز کردن دوباره: <b>منو</b> یا منشن ربات + منو"
     )
 
 
@@ -37,9 +37,9 @@ async def send_group_panel(message: Message, session: AsyncSession) -> bool:
     ctx = await get_group_context(session, message.chat.id)
     if ctx is None:
         return False
-    class_group, _, school = ctx
+    class_group, _, _ = ctx
     await message.answer(
-        await _panel_text(class_group.name),
+        panel_text(class_group.name),
         reply_markup=group_panel(class_id=class_group.id, class_name=class_group.name),
     )
     return True
@@ -51,15 +51,22 @@ async def group_start(message: Message, session: AsyncSession) -> None:
     if not ok:
         await message.answer(
             "این گروه هنوز به کلاسی وصل نیست.\n"
-            "کد اتصال را (از مدیریت کلاس) همین‌جا به صورت یک پیام معمولی بفرست."
+            "کد اتصال را همین‌جا به صورت یک پیام معمولی بفرست."
         )
 
 
 @router.message(
     F.chat.type.in_({"group", "supergroup"}),
-    F.text.func(lambda t: bool(t) and t.strip().lower() in PANEL_TRIGGERS),
+    F.text.func(
+        lambda t: bool(t)
+        and (
+            t.strip().lower() in PANEL_TRIGGERS
+            or any(t.strip().lower().endswith(f" {x}") or t.strip().lower().startswith(f"{x} ") for x in PANEL_TRIGGERS)
+        )
+    ),
 )
 async def group_menu_text(message: Message, session: AsyncSession) -> None:
+    # Works when Privacy Mode is off, bot is admin, or message is a reply/mention path Telegram delivers
     ok = await send_group_panel(message, session)
     if not ok:
         await message.answer("گروه به کلاسی متصل نیست. اول کد اتصال را بفرست.")
@@ -75,7 +82,7 @@ async def cb_refresh_panel(callback: CallbackQuery, session: AsyncSession) -> No
         await callback.answer("کلاس پیدا نشد", show_alert=True)
         return
     class_group = ctx[0]
-    text = await _panel_text(class_group.name)
+    text = panel_text(class_group.name)
     try:
         await callback.message.edit_text(
             text,
@@ -91,7 +98,6 @@ async def cb_refresh_panel(callback: CallbackQuery, session: AsyncSession) -> No
 
 @router.callback_query(F.data.startswith("g:view:"))
 async def cb_group_view(callback: CallbackQuery, session: AsyncSession) -> None:
-    # g:view:{action}:{class_id}
     parts = callback.data.split(":")
     action = parts[2]
     class_id = int(parts[3])
@@ -102,7 +108,6 @@ async def cb_group_view(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("g:new:"))
 async def cb_group_new(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
-    # g:new:hw|exam|report:{class_id}
     parts = callback.data.split(":")
     kind = parts[2]
     class_id = int(parts[3])
@@ -116,7 +121,6 @@ async def cb_group_new(callback: CallbackQuery, state: FSMContext, session: Asyn
     await state.clear()
     await callback.answer()
 
-    # Reply in group so the whole class sees progress; FSM is per user+chat
     if kind == "hw":
         await start_homework_after_class(callback.message, state, session, class_id)
     elif kind == "exam":
