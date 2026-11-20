@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from classmate.core.enums import OutboxStatus, Role
@@ -124,11 +124,11 @@ async def test_postgres_outbox_is_durable_and_claims_respect_skip_locked():
         # A new session sees the committed rows after the enqueue transaction.
         async with sessions() as session:
             count = await session.scalar(
-                select(TelegramOutbox.id).where(
+                select(func.count()).select_from(TelegramOutbox).where(
                     TelegramOutbox.id.in_([first.id, second.id])
-                ).order_by(TelegramOutbox.id)
+                )
             )
-            assert count == first.id
+            assert count == 2
     finally:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.drop_all)
