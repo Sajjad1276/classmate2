@@ -1,5 +1,6 @@
 """Button-first navigation: menus, class picker, view actions."""
 
+import asyncio
 import logging
 from datetime import date
 from html import escape
@@ -52,12 +53,14 @@ async def render_panel(message: Message, text: str, markup) -> None:
     Editing a freshly sent message is not guaranteed by every Telegram client or
     proxy. Sending the markup with the original request prevents a panel from
     appearing as plain text with no actionable options. The keyboard-removal
-    update is sent as an invisible message and deleted immediately so it does
-    not add clutter to the chat.
+    update is sent as an invisible message and deleted shortly after Telegram
+    clients have had time to apply the keyboard removal, so it does not add
+    clutter to the chat.
     """
     await message.answer(text, reply_markup=markup)
     cleanup_message = await message.answer("\u2063", reply_markup=ReplyKeyboardRemove())
     try:
+        await asyncio.sleep(0.35)
         await cleanup_message.delete()
     except Exception:
         logger.debug("Could not delete invisible keyboard cleanup message", exc_info=True)
@@ -367,13 +370,19 @@ async def btn_new(message: Message) -> None:
 
 
 @router.message(F.text.in_({"⚙️ مدیریت", "⚙️ مدیریت کلاس", "مدیریت", "مدیریت کلاس"}))
-async def btn_manage(message: Message) -> None:
+async def btn_manage(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
+    user = await get_user(session, message.from_user)
+    is_admin, is_manager, is_approver = await role_flags(session, user)
     await render_panel(
         message,
-        "⚙️ <b>مدیریت کلاس</b>\n\nعملیات موردنظر را انتخاب کنید:",
-        management_menu(),
+        "⚙️ <b>مدیریت</b>\n\nعملیات موردنظر را انتخاب کنید:",
+        management_menu(
+            is_admin=is_admin or user.is_platform_admin,
+            is_manager=is_manager,
+            is_approver=is_approver,
+        ),
     )
 
 
@@ -439,7 +448,7 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
     action = callback.data.split(":", 1)[1]
     await delete_panel(callback.message)
     user = await get_user(session, callback.from_user)
-    if action in {"homework", "exams", "week", "today", "content", "reviews", "evaluation"}:
+    if action in {"homework", "exams", "week", "today", "content", "reviews", "evaluation", "pending"}:
         mapped = {"reviews": "review_submissions", "content": "content"}.get(action, action)
         classes = await classes_for_user(session, user)
         if len(classes) == 1 and mapped in {"content", "review_submissions", "evaluation"}:
@@ -469,6 +478,12 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
         )
     elif action == "education":
         await render_panel(callback.message, "🎓 <b>بخش آموزشی</b>\nگزینه موردنظر را انتخاب کنید:", education_menu())
+    elif action == "new":
+        await render_panel(
+            callback.message,
+            "📝 <b>ثبت اطلاعات</b>\nنوع اطلاعات موردنظر را انتخاب کنید:",
+            new_record_menu(),
+        )
     else:
         from classmate.bot.handlers.phase2 import my_attendance, my_grades, polls, submit_entry
         handlers = {"submit": submit_entry, "grades": my_grades, "attendance": my_attendance, "polls": polls}
