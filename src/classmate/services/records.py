@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.core.enums import EntityType, RecordStatus
+from classmate.core.enums import EntityType, OutboxStatus, RecordStatus
 from classmate.db.models import (
     AcademicYear,
     ApprovalEvent,
