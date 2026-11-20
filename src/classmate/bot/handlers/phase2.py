@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for, render_panel
 from classmate.bot.keyboards import cancel_kb, class_picker, education_result_kb
 from classmate.bot.states import EvaluationForm, PollCreateForm, ReviewSubmissionForm, SubmissionForm
+from classmate.core.enums import RecordStatus
 from classmate.db.models import Attendance, ClassMembership, ClassSubject, Grade, Homework, HomeworkSubmission, Poll, PollOption, Subject, User
 from classmate.domain.dates import jalali_date
 from classmate.services.outbox import enqueue_telegram_message
@@ -330,8 +331,12 @@ async def review_open(callback: CallbackQuery, state: FSMContext, session: Async
         await callback.answer("پاسخ موردنظر پیدا نشد.", show_alert=True)
         return
     homework = await session.get(Homework, submission.homework_id)
-    if homework is None or not await is_class_manager(session, user, homework.class_id):
-        await callback.answer("دسترسی بررسی این پاسخ را ندارید.", show_alert=True)
+    if (
+        homework is None
+        or homework.status != RecordStatus.APPROVED
+        or not await is_class_manager(session, user, homework.class_id)
+    ):
+        await callback.answer("این پاسخ دیگر برای بررسی در دسترس نیست.", show_alert=True)
         return
     content = submission.text or ""
     await delete_panel(callback.message)
@@ -371,15 +376,27 @@ async def review_submit(message: Message, state: FSMContext, session: AsyncSessi
         return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     data = await state.get_data()
-    submission = await session.get(HomeworkSubmission, data["review_submission_id"])
+    submission = await session.scalar(
+        select(HomeworkSubmission)
+        .where(HomeworkSubmission.id == data["review_submission_id"])
+        .with_for_update()
+    )
     if submission is None:
         await state.clear()
         await message.answer("پاسخ موردنظر پیدا نشد.")
         return
-    homework = await session.get(Homework, submission.homework_id)
-    if homework is None or not await is_class_manager(session, user, homework.class_id):
+    homework = await session.scalar(
+        select(Homework)
+        .where(Homework.id == submission.homework_id)
+        .with_for_update()
+    )
+    if (
+        homework is None
+        or homework.status != RecordStatus.APPROVED
+        or not await is_class_manager(session, user, homework.class_id)
+    ):
         await state.clear()
-        await message.answer("دسترسی بررسی این پاسخ را ندارید.")
+        await message.answer("این تکلیف دیگر فعال نیست یا دسترسی بررسی آن را ندارید.")
         return
     submission.feedback = message.text.strip()
     submission.status = "reviewed"
