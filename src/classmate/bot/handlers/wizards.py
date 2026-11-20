@@ -50,6 +50,7 @@ from classmate.services.permissions import (
     activate_student_membership,
     code_expiry,
     get_class_with_school,
+    connect_group_by_code,
     hash_code,
     is_class_manager,
     is_school_admin,
@@ -590,19 +591,30 @@ async def join_code(message: Message, state: FSMContext, session: AsyncSession) 
         return
     code = message.text.strip().upper()
     user = await get_user(session, message.from_user, private=True)
+    if not user.is_active:
+        await message.answer("حساب کاربری شما غیرفعال است.")
+        return
     cls = await session.scalar(
-        select(ClassGroup).where(
+        select(ClassGroup)
+        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
+        .where(
             ClassGroup.member_join_code_hash == hash_code(code),
             ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
         )
     )
     if cls is None:
         await message.answer("کد واردشده معتبر نیست. لطفاً دوباره تلاش کنید یا عملیات را لغو کنید.")
         return
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    if cls.member_join_code_expires_at and cls.member_join_code_expires_at < datetime.now(timezone.utc):
-        await message.answer("این این کد منقضی شده است. لطفاً کد جدیدی دریافت کنید.")
+    if (
+        cls.member_join_code_expires_at is None
+        or cls.member_join_code_expires_at.replace(tzinfo=cls.member_join_code_expires_at.tzinfo or timezone.utc)
+        <= datetime.now(timezone.utc)
+    ):
+        await message.answer("این کد منقضی شده است. لطفاً کد جدیدی دریافت کنید.")
         await state.clear()
         await message.answer("منو:", reply_markup=await menu_for(session, user))
         return
@@ -695,68 +707,45 @@ async def group_shared_text(message: Message, state: FSMContext, session: AsyncS
 
 @router.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"^[A-HJ-NP-Z2-9]{6,10}$"))
 async def group_connect_code(message: Message, session: AsyncSession) -> None:
-    """Connect a class group only after independently verifying both admins."""
+    """Connect a class group through the same guarded service as /connect."""
     if message.from_user is None or message.text is None:
-        return
-    code = message.text.strip().upper()
-    cls = await session.scalar(
-        select(ClassGroup)
-        .where(
-            ClassGroup.group_link_code_hash == hash_code(code),
-            ClassGroup.is_active.is_(True),
-        )
-        .with_for_update()
-    )
-    if cls is None:
         return
 
     user = await get_user(session, message.from_user, private=False)
-    if not await is_class_manager(session, user, cls.id):
-        await message.answer("فقط مدیر همین کلاس می‌تواند کد اتصال را فعال کند.")
-        return
-    expires_at = cls.group_link_code_expires_at
-    if expires_at is not None and expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if expires_at is not None and expires_at < datetime.now(timezone.utc):
-        await message.answer("کد اتصال منقضی شده است. لطفاً از مدیر کلاس کد جدید دریافت کنید.")
-        return
-
     try:
         bot_user = await message.bot.me()
         bot_member = await message.bot.get_chat_member(message.chat.id, bot_user.id)
-        requester_member = await message.bot.get_chat_member(message.chat.id, message.from_user.id)
-    except Exception:
-        logger.warning("Could not verify group connection permissions for chat %s", message.chat.id, exc_info=True)
-        await message.answer("امکان بررسی مدیران گروه وجود ندارد. مطمئن شوید ربات در گروه مدیر است و دوباره تلاش کنید.")
-        return
-
-    if bot_member.status not in {"administrator", "creator"}:
-        await message.answer("برای اتصال کلاس، ابتدا ربات را در این گروه مدیر کنید.")
-        return
-    if requester_member.status not in {"administrator", "creator"}:
-        await message.answer("فقط مالک یا مدیر همین گروه می‌تواند آن را به کلاس متصل کند.")
-        return
-
-    conflict = await session.scalar(
-        select(ClassGroup.id).where(
-            ClassGroup.group_chat_id == message.chat.id,
-            ClassGroup.id != cls.id,
+        requester_member = await message.bot.get_chat_member(
+            message.chat.id, message.from_user.id
         )
-    )
-    if conflict is not None:
-        await message.answer("این گروه قبلاً به کلاس دیگری متصل شده است.")
-        return
-    if cls.group_chat_id is not None and cls.group_chat_id != message.chat.id:
-        await message.answer("این کلاس از قبل به گروه دیگری متصل است. ابتدا اتصال قبلی را از مدیریت کلاس لغو کنید.")
+    except Exception:
+        logger.warning(
+            "Could not verify group connection permissions for chat %s",
+            message.chat.id,
+            exc_info=True,
+        )
+        await message.answer(
+            "امکان بررسی مدیران گروه وجود ندارد. مطمئن شوید ربات در گروه مدیر است و دوباره تلاش کنید."
+        )
         return
 
-    cls.group_chat_id = message.chat.id
-    cls.group_chat_title = message.chat.title
-    cls.group_link_code_hash = None
-    cls.group_link_code_expires_at = None
-    await session.flush()
-    await session.commit()
-    await message.answer(f"✅ گروه به کلاس <b>{escape(cls.name)}</b> متصل شد.")
+    try:
+        class_group = await connect_group_by_code(
+            session,
+            code=message.text.strip().upper(),
+            chat_id=message.chat.id,
+            chat_title=message.chat.title,
+            actor=user,
+            bot_is_admin=bot_member.status in {"administrator", "creator"},
+            actor_is_admin=requester_member.status in {"administrator", "creator"},
+        )
+    except (PermissionError, ValueError) as exc:
+        await message.answer(str(exc))
+        return
+
+    await message.answer(
+        f"✅ گروه به کلاس <b>{escape(class_group.name)}</b> متصل شد."
+    )
 
 
 # ── School form ─────────────────────────────────────────────────────

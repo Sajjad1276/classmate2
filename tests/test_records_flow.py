@@ -1,12 +1,12 @@
 """Integration: homework lifecycle — create, self-approve block, approve, reject, list."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
 
-from classmate.core.enums import EntityType, RecordStatus, Role
-from classmate.db.models import ClassMembership, ClassGroup, Homework, User
+from classmate.core.enums import EntityType, OutboxStatus, RecordStatus, ReminderStatus, Role
+from classmate.db.models import ClassMembership, ClassGroup, Homework, ReminderJob, TelegramOutbox, User
 from classmate.services.permissions import (
     can_approve,
     code_expiry,
@@ -22,6 +22,7 @@ from classmate.services.records import (
     list_pending_records,
     reject_record,
 )
+from classmate.services.phase1 import update_record
 from classmate.services.users import ensure_user
 
 
@@ -299,3 +300,136 @@ async def test_expired_join_code(world):
     )
     assert found is not None
     assert found.member_join_code_expires_at < datetime.now(timezone.utc)
+
+
+
+@pytest.mark.asyncio
+async def test_record_services_reject_unauthorized_approver(world):
+    session = world["session"]
+    homework = await create_homework(
+        session,
+        world["class"].id,
+        world["subject"],
+        "رکورد محرمانه",
+        "شرح",
+        None,
+        world["manager"].id,
+    )
+
+    ok, message = await approve_record(
+        session,
+        EntityType.HOMEWORK.value,
+        homework.id,
+        world["student"].id,
+        world["school"].id,
+        world["class"].id,
+        "Asia/Tehran",
+    )
+    assert ok is False
+    assert "اجازه تأیید" in message
+    await session.refresh(homework)
+    assert homework.status == RecordStatus.PENDING
+
+    rejected, message = await reject_record(
+        session,
+        EntityType.HOMEWORK.value,
+        homework.id,
+        world["student"].id,
+        world["school"].id,
+        world["class"].id,
+        note="تلاش غیرمجاز",
+    )
+    assert rejected is False
+    assert "اجازه رد" in message
+    await session.refresh(homework)
+    assert homework.status == RecordStatus.PENDING
+
+
+
+@pytest.mark.asyncio
+async def test_editing_title_updates_queued_reminders_and_approval_messages(world):
+    session = world["session"]
+    homework = await create_homework(
+        session,
+        world["class"].id,
+        world["subject"],
+        "عنوان قدیمی",
+        "توضیح",
+        date.today() + timedelta(days=3),
+        world["student"].id,
+    )
+    approved, _ = await approve_record(
+        session,
+        EntityType.HOMEWORK.value,
+        homework.id,
+        world["approver"].id,
+        world["school"].id,
+        world["class"].id,
+        "Asia/Tehran",
+    )
+    assert approved is True
+
+    now = datetime.now(timezone.utc)
+    reminder = ReminderJob(
+        class_id=world["class"].id,
+        entity_type=EntityType.HOMEWORK.value,
+        entity_id=homework.id,
+        target_type="group",
+        target_id=-1001234567890,
+        message_text="یادآوری تکلیف: عنوان قدیمی",
+        scheduled_at=now + timedelta(hours=1),
+        status=ReminderStatus.PENDING,
+        dedupe_key=f"edit-title-reminder:{homework.id}",
+    )
+    queued = TelegramOutbox(
+        target_type="group",
+        target_chat_id=-1001234567890,
+        class_id=world["class"].id,
+        entity_type=EntityType.HOMEWORK.value,
+        entity_id=homework.id,
+        expected_record_status=RecordStatus.APPROVED.value,
+        text="تکلیف جدید برای بررسی: عنوان قدیمی",
+        scheduled_at=now + timedelta(hours=1),
+        status=OutboxStatus.PENDING,
+        idempotency_key=f"edit-title-outbox:{homework.id}",
+    )
+    session.add_all([reminder, queued])
+    await session.flush()
+
+    ok, message = await update_record(
+        session,
+        EntityType.HOMEWORK.value,
+        homework.id,
+        "عنوان تازه",
+        "توضیحات تازه",
+        world["manager"],
+    )
+    assert ok is True
+    assert "موفقیت" in message
+    await session.refresh(reminder)
+    await session.refresh(queued)
+    assert reminder.message_text == "یادآوری تکلیف: عنوان تازه"
+    assert queued.text == "تکلیف جدید برای بررسی: عنوان تازه"
+
+
+@pytest.mark.asyncio
+async def test_editing_record_rejects_blank_title(world):
+    homework = await create_homework(
+        world["session"],
+        world["class"].id,
+        world["subject"],
+        "عنوان",
+        "توضیح",
+        None,
+        world["student"].id,
+    )
+    ok, message = await update_record(
+        world["session"],
+        EntityType.HOMEWORK.value,
+        homework.id,
+        "   ",
+        "توضیح",
+        world["manager"],
+    )
+    assert ok is False
+    assert "خالی" in message

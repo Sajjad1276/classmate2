@@ -1,5 +1,6 @@
-from datetime import date
+from datetime import datetime
 from html import escape
+from zoneinfo import ZoneInfo
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -12,7 +13,7 @@ from classmate.services.records import get_group_context, list_exams, list_homew
 from classmate.services.users import ensure_user
 from classmate.core.config import get_settings
 from classmate.db.models import TimetableEntry, Subject
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 router = Router(name="queries")
 
@@ -31,6 +32,8 @@ async def _resolve_class(message: Message, session: AsyncSession, arg: str | Non
     if message.from_user.id in settings.bootstrap_admin_id_set:
         user.is_platform_admin = True
 
+    if not user.is_active:
+        return None, user
     if message.chat.type in {"group", "supergroup"}:
         return await get_group_context(session, message.chat.id), user
 
@@ -98,7 +101,7 @@ async def cmd_today(message: Message, session: AsyncSession) -> None:
         await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
         return
     class_group, _, school = ctx
-    today = date.today()
+    today = datetime.now(ZoneInfo(school.timezone)).date()
     reports = await list_reports(session, class_group.id, today)
     if not reports:
         await message.answer(f"گزارش تأییدشده‌ای برای امروز ({jalali_date(today)}) نیست.")
@@ -116,12 +119,23 @@ async def cmd_week(message: Message, session: AsyncSession) -> None:
     if ctx is None:
         await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
         return
-    class_group, _, _ = ctx
+    class_group, _, school = ctx
+    local_today = datetime.now(ZoneInfo(school.timezone)).date()
     entries = (
         await session.execute(
             select(TimetableEntry, Subject)
             .join(Subject, TimetableEntry.subject_id == Subject.id)
-            .where(TimetableEntry.class_id == class_group.id)
+            .where(
+                TimetableEntry.class_id == class_group.id,
+                or_(
+                    TimetableEntry.valid_from.is_(None),
+                    TimetableEntry.valid_from <= local_today,
+                ),
+                or_(
+                    TimetableEntry.valid_until.is_(None),
+                    TimetableEntry.valid_until >= local_today,
+                ),
+            )
             .order_by(TimetableEntry.weekday, TimetableEntry.period)
         )
     ).all()

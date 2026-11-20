@@ -1,13 +1,24 @@
 """Phase-two learning workflow services."""
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from math import isfinite
 from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.core.enums import RecordStatus
-from classmate.db.models import Attendance, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, Subject, User
-from classmate.services.permissions import user_can_access_class
+from classmate.db.models import AcademicYear, Attendance, ClassGroup, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, School, Subject, User
+from classmate.services.permissions import is_class_manager, user_can_access_class
+
+
+
+
+def validate_grade_values(score: float, max_score: float) -> None:
+    """Reject non-finite values before persisting a numeric grade."""
+    if not isfinite(score) or not isfinite(max_score):
+        raise ValueError("نمره و سقف نمره باید عدد محدود و معتبر باشند.")
+    if score < 0 or max_score <= 0 or score > max_score:
+        raise ValueError("مقدار نمره معتبر نیست.")
 
 
 async def approved_homeworks_for_student(session: AsyncSession, class_id: int):
@@ -19,21 +30,25 @@ async def approved_homeworks_for_student(session: AsyncSession, class_id: int):
 
 
 async def save_submission(session: AsyncSession, homework_id: int, student_id: int, text: str | None = None, file_id: str | None = None, file_type: str | None = None) -> HomeworkSubmission:
-    homework = await session.get(Homework, homework_id)
+    homework = await session.scalar(
+        select(Homework).where(Homework.id == homework_id).with_for_update()
+    )
     if homework is None or homework.status != RecordStatus.APPROVED:
         raise ValueError("این تکلیف در دسترس نیست.")
     student = await session.get(User, student_id)
-    membership_id = await session.scalar(
-        select(ClassMembership.id).where(
+    membership = await session.scalar(
+        select(ClassMembership)
+        .where(
             ClassMembership.class_id == homework.class_id,
             ClassMembership.user_id == student_id,
             ClassMembership.is_active.is_(True),
         )
+        .with_for_update()
     )
     if (
         student is None
         or not student.is_active
-        or membership_id is None
+        or membership is None
         or not await user_can_access_class(session, student, homework.class_id)
     ):
         raise PermissionError("فقط عضو فعال کلاس می‌تواند پاسخ تکلیف را ارسال کند.")
@@ -49,20 +64,173 @@ async def save_submission(session: AsyncSession, homework_id: int, student_id: i
     return item
 
 
-async def student_grades(session: AsyncSession, student_id: int):
-    return list((await session.execute(
-        select(Grade, Subject).join(Subject, Grade.subject_id == Subject.id)
-        .where(Grade.student_id == student_id).order_by(Grade.created_at.desc()).limit(50)
-    )).all())
-
-
-async def student_attendance(session: AsyncSession, student_id: int, class_ids: list[int]):
+async def student_grades(
+    session: AsyncSession, student_id: int, class_ids: list[int]
+):
     if not class_ids:
         return []
-    return list((await session.execute(
-        select(Attendance).where(Attendance.student_id == student_id, Attendance.class_id.in_(class_ids))
-        .order_by(Attendance.attendance_date.desc()).limit(60)
-    )).scalars().all())
+    return list(
+        (
+            await session.execute(
+                select(Grade, Subject)
+                .join(Subject, Grade.subject_id == Subject.id)
+                .join(
+                    ClassMembership,
+                    (ClassMembership.class_id == Grade.class_id)
+                    & (ClassMembership.user_id == Grade.student_id)
+                    & ClassMembership.is_active.is_(True),
+                )
+                .join(ClassGroup, Grade.class_id == ClassGroup.id)
+                .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+                .join(School, AcademicYear.school_id == School.id)
+                .join(User, Grade.student_id == User.id)
+                .where(
+                    Grade.student_id == student_id,
+                    Grade.class_id.in_(class_ids),
+                    User.is_active.is_(True),
+                    ClassGroup.is_active.is_(True),
+                    School.is_active.is_(True),
+                )
+                .order_by(Grade.created_at.desc())
+                .limit(50)
+            )
+        ).all()
+    )
+
+
+async def student_attendance(
+    session: AsyncSession, student_id: int, class_ids: list[int]
+):
+    if not class_ids:
+        return []
+    return list(
+        (
+            await session.execute(
+                select(Attendance)
+                .join(
+                    ClassMembership,
+                    (ClassMembership.class_id == Attendance.class_id)
+                    & (ClassMembership.user_id == Attendance.student_id)
+                    & ClassMembership.is_active.is_(True),
+                )
+                .join(ClassGroup, Attendance.class_id == ClassGroup.id)
+                .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+                .join(School, AcademicYear.school_id == School.id)
+                .join(User, Attendance.student_id == User.id)
+                .where(
+                    Attendance.student_id == student_id,
+                    Attendance.class_id.in_(class_ids),
+                    User.is_active.is_(True),
+                    ClassGroup.is_active.is_(True),
+                    School.is_active.is_(True),
+                )
+                .order_by(Attendance.attendance_date.desc())
+                .limit(60)
+            )
+        ).scalars().all()
+    )
+
+
+
+
+async def save_attendance(
+    session: AsyncSession,
+    *,
+    class_id: int,
+    student_id: int,
+    attendance_date: date,
+    status: str,
+    marked_by: int,
+    note: str | None = None,
+) -> Attendance:
+    """Atomically insert or update one attendance mark per student and date."""
+    if status not in {"present", "absent", "late", "excused"}:
+        raise ValueError("وضعیت حضور‌وغیاب معتبر نیست.")
+
+    student = await session.get(User, student_id)
+    if (
+        student is None
+        or not student.is_active
+        or not await user_can_access_class(session, student, class_id)
+        or await session.scalar(
+            select(ClassMembership.id).where(
+                ClassMembership.class_id == class_id,
+                ClassMembership.user_id == student_id,
+                ClassMembership.is_active.is_(True),
+            )
+        ) is None
+    ):
+        raise PermissionError("دانش‌آموز عضو فعال این کلاس نیست.")
+
+    manager = await session.get(User, marked_by)
+    if manager is None or not await is_class_manager(session, manager, class_id):
+        raise PermissionError("فقط مدیر کلاس می‌تواند حضور‌وغیاب ثبت کند.")
+
+    values = {
+        "class_id": class_id,
+        "student_id": student_id,
+        "attendance_date": attendance_date,
+        "status": status,
+        "note": note,
+        "marked_by": marked_by,
+    }
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        statement = (
+            pg_insert(Attendance)
+            .values(**values)
+            .on_conflict_do_update(
+                index_elements=[
+                    Attendance.class_id,
+                    Attendance.student_id,
+                    Attendance.attendance_date,
+                ],
+                set_={"status": status, "note": note, "marked_by": marked_by},
+            )
+            .returning(Attendance.id)
+        )
+        attendance_id = await session.scalar(statement)
+    elif dialect == "sqlite":
+        statement = (
+            sqlite_insert(Attendance)
+            .values(**values)
+            .on_conflict_do_update(
+                index_elements=[
+                    Attendance.class_id,
+                    Attendance.student_id,
+                    Attendance.attendance_date,
+                ],
+                set_={"status": status, "note": note, "marked_by": marked_by},
+            )
+            .returning(Attendance.id)
+        )
+        attendance_id = await session.scalar(statement)
+    else:
+        existing = await session.scalar(
+            select(Attendance)
+            .where(
+                Attendance.class_id == class_id,
+                Attendance.student_id == student_id,
+                Attendance.attendance_date == attendance_date,
+            )
+            .with_for_update()
+        )
+        if existing is None:
+            existing = Attendance(**values)
+            session.add(existing)
+            await session.flush()
+        else:
+            existing.status = status
+            existing.note = note
+            existing.marked_by = marked_by
+        attendance_id = existing.id
+
+    await session.flush()
+    attendance = await session.get(Attendance, attendance_id)
+    if attendance is None:
+        raise RuntimeError("ثبت حضور‌وغیاب انجام نشد.")
+    await session.refresh(attendance)
+    return attendance
 
 
 async def active_polls(session: AsyncSession, class_ids: list[int]):

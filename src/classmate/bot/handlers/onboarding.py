@@ -1,4 +1,6 @@
+from datetime import datetime, timezone
 from html import escape
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -10,7 +12,9 @@ from classmate.core.config import get_settings
 from classmate.core.enums import Role
 from classmate.db.models import AcademicYear, ClassGroup, ClassMembership, School, SchoolMembership, User
 from classmate.services.permissions import (
+    activate_student_membership,
     code_expiry,
+    connect_group_by_code,
     get_class_with_school,
     hash_code,
     is_school_admin,
@@ -47,14 +51,20 @@ async def school_new(message: Message, session: AsyncSession) -> None:
         if len(parts) not in {2, 3} or not parts[0] or not parts[1]:
             raise ValueError
         name, year_name = parts[0], parts[1]
-        tz = parts[2] if len(parts) == 3 else "Asia/Tehran"
+        tz = (parts[2] if len(parts) == 3 else "Asia/Tehran") or "Asia/Tehran"
     except (IndexError, ValueError):
         await message.answer("قالب: /school_new نام مدرسه | ۱۴۰۵-۱۴۰۶ [| Asia/Tehran]")
         return
 
     user = await _user(session, message.from_user, private=True)
-    if not user.is_platform_admin:
-        await message.answer("فقط مدیر کل سامانه می‌تواند مدرسه بسازد.")
+    if not user.is_active or not user.is_platform_admin:
+        await message.answer("فقط مدیر فعال سامانه می‌تواند مدرسه بسازد.")
+        return
+
+    try:
+        ZoneInfo(tz)
+    except ZoneInfoNotFoundError:
+        await message.answer("منطقه زمانی نامعتبر است. نمونه معتبر: Asia/Tehran")
         return
 
     school = School(name=name[:180], timezone=tz)
@@ -167,26 +177,32 @@ async def connect_group(message: Message, session: AsyncSession) -> None:
         return
 
     user = await _user(session, message.from_user)
-    code_h = hash_code(code)
-    cls = await session.scalar(
-        select(ClassGroup).where(
-            ClassGroup.group_link_code_hash == code_h,
-            ClassGroup.is_active.is_(True),
+    try:
+        bot_user = await message.bot.me()
+        bot_member = await message.bot.get_chat_member(message.chat.id, bot_user.id)
+        requester_member = await message.bot.get_chat_member(
+            message.chat.id, message.from_user.id
         )
-    )
-    if cls is None:
-        await message.answer("کد واردشده معتبر نیست.")
-        return
-    if cls.group_link_code_expires_at and cls.group_link_code_expires_at < __import__("datetime").datetime.now(
-        __import__("datetime").timezone.utc
-    ):
-        await message.answer("این کد منقضی شده است.")
+    except Exception:
+        await message.answer(
+            "امکان بررسی مدیران گروه وجود ندارد. مطمئن شوید ربات در گروه است و دوباره تلاش کنید."
+        )
         return
 
-    cls.group_chat_id = message.chat.id
-    cls.group_chat_title = message.chat.title
-    cls.group_link_code_hash = None
-    cls.group_link_code_expires_at = None
+    try:
+        cls = await connect_group_by_code(
+            session,
+            code=code,
+            chat_id=message.chat.id,
+            chat_title=message.chat.title,
+            actor=user,
+            bot_is_admin=bot_member.status in {"administrator", "creator"},
+            actor_is_admin=requester_member.status in {"administrator", "creator"},
+        )
+    except (PermissionError, ValueError) as exc:
+        await message.answer(str(exc))
+        return
+
     await message.answer(f"گروه با موفقیت به کلاس <b>{escape(cls.name)}</b> متصل شد.")
 
 
@@ -202,32 +218,32 @@ async def join_class(message: Message, session: AsyncSession) -> None:
         return
 
     user = await _user(session, message.from_user, private=True)
+    if not user.is_active:
+        await message.answer("حساب کاربری شما غیرفعال است.")
+        return
     code_h = hash_code(code)
     cls = await session.scalar(
-        select(ClassGroup).where(
+        select(ClassGroup)
+        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
+        .where(
             ClassGroup.member_join_code_hash == code_h,
             ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
         )
     )
     if cls is None:
         await message.answer("کد عضویت واردشده معتبر نیست.")
         return
-    if cls.member_join_code_expires_at and cls.member_join_code_expires_at < __import__("datetime").datetime.now(
-        __import__("datetime").timezone.utc
+    if (
+        cls.member_join_code_expires_at is None
+        or cls.member_join_code_expires_at.replace(tzinfo=cls.member_join_code_expires_at.tzinfo or timezone.utc)
+        <= datetime.now(timezone.utc)
     ):
         await message.answer("این کد منقضی شده است.")
         return
 
-    existing = await session.scalar(
-        select(ClassMembership).where(
-            ClassMembership.class_id == cls.id, ClassMembership.user_id == user.id
-        )
-    )
-    if existing:
-        existing.is_active = True
-    else:
-        session.add(ClassMembership(class_id=cls.id, user_id=user.id, role=Role.STUDENT))
-
+    await activate_student_membership(session, cls.id, user.id)
     await message.answer(f"با موفقیت به کلاس <b>{escape(cls.name)}</b> ملحق شدید.")
 
 
@@ -237,12 +253,16 @@ async def list_classes(message: Message, session: AsyncSession) -> None:
         await message.answer("این فرمان را در گفت‌وگوی خصوصی ربات اجرا کنید: /classes")
         return
     user = await _user(session, message.from_user, private=True)
+    if not user.is_active:
+        await message.answer("حساب کاربری شما غیرفعال است.")
+        return
 
     from sqlalchemy import or_
 
     query = (
         select(ClassGroup)
         .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
         .outerjoin(
             ClassMembership,
             (ClassMembership.class_id == ClassGroup.id)
@@ -258,6 +278,7 @@ async def list_classes(message: Message, session: AsyncSession) -> None:
         )
         .where(
             ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
             or_(
                 ClassMembership.id.is_not(None),
                 SchoolMembership.id.is_not(None),

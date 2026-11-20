@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.core.enums import EntityType, OutboxStatus, RecordStatus
+from classmate.core.enums import EntityType, OutboxStatus, RecordStatus, ReminderStatus
 from classmate.db.models import (
     AcademicYear,
     Announcement,
@@ -15,6 +15,7 @@ from classmate.db.models import (
     Exam,
     Homework,
     NotificationPreference,
+    ReminderJob,
     School,
     Subject,
     TelegramOutbox,
@@ -191,7 +192,7 @@ async def archive_record(session: AsyncSession, entity_type: str, entity_id: int
              EntityType.REPORT.value: DailyReport}.get(entity_type)
     if model is None:
         return False, "نوع اطلاعات معتبر نیست."
-    record = await session.get(model, entity_id)
+    record = await session.get(model, entity_id, with_for_update=True)
     if record is None:
         return False, "اطلاعات موردنظر پیدا نشد."
     if not await is_class_manager(session, actor, record.class_id):
@@ -230,14 +231,51 @@ async def update_record(
              EntityType.REPORT.value: DailyReport}.get(entity_type)
     if model is None:
         return False, "نوع اطلاعات معتبر نیست."
-    record = await session.get(model, entity_id)
+    record = await session.get(model, entity_id, with_for_update=True)
     if record is None:
         return False, "اطلاعات موردنظر پیدا نشد."
     if not await is_class_manager(session, actor, record.class_id):
         return False, "فقط مدیر کلاس می‌تواند اطلاعات را ویرایش کند."
     if record.status == RecordStatus.CANCELLED:
         return False, "اطلاعات آرشیوشده قابل ویرایش نیست."
-    record.title = first.strip()[:180]
+    new_title = first.strip()[:180]
+    if not new_title:
+        return False, "عنوان نمی‌تواند خالی باشد."
+    old_title = record.title or ""
+    if old_title and old_title != new_title:
+        pending_reminders = (
+            await session.scalars(
+                select(ReminderJob)
+                .where(
+                    ReminderJob.entity_type == entity_type,
+                    ReminderJob.entity_id == entity_id,
+                    ReminderJob.status.in_(
+                        [ReminderStatus.PENDING, ReminderStatus.RETRY, ReminderStatus.PROCESSING]
+                    ),
+                )
+                .with_for_update()
+            )
+        ).all()
+        for reminder in pending_reminders:
+            reminder.message_text = reminder.message_text.replace(old_title, new_title)
+
+        pending_messages = (
+            await session.scalars(
+                select(TelegramOutbox)
+                .where(
+                    TelegramOutbox.entity_type == entity_type,
+                    TelegramOutbox.entity_id == entity_id,
+                    TelegramOutbox.status.in_(
+                        [OutboxStatus.PENDING, OutboxStatus.RETRY, OutboxStatus.PROCESSING]
+                    ),
+                )
+                .with_for_update()
+            )
+        ).all()
+        for queued_message in pending_messages:
+            queued_message.text = queued_message.text.replace(old_title, new_title)
+
+    record.title = new_title
     if entity_type == EntityType.HOMEWORK.value:
         record.description = second.strip()
     elif entity_type == EntityType.EXAM.value:

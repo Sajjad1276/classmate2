@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for, render_panel
 from classmate.bot.keyboards import cancel_kb, class_picker, education_result_kb
 from classmate.bot.states import EvaluationForm, PollCreateForm, ReviewSubmissionForm, SubmissionForm
+from classmate.core.enums import RecordStatus
 from classmate.db.models import Attendance, ClassMembership, ClassSubject, Grade, Homework, HomeworkSubmission, Poll, PollOption, Subject, User
 from classmate.domain.dates import jalali_date
 from classmate.services.outbox import enqueue_telegram_message
@@ -24,9 +25,11 @@ from classmate.services.phase2 import (
     approved_homeworks_for_student,
     poll_options,
     poll_result,
+    save_attendance,
     save_submission,
     student_attendance,
     student_grades,
+    validate_grade_values,
 )
 
 router = Router(name="phase2")
@@ -143,11 +146,12 @@ async def my_grades(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
-    rows = await student_grades(session, user.id)
+    classes = await classes_for_user(session, user)
+    rows = await student_grades(session, user.id, [row[0] for row in classes])
     if not rows:
         await render_panel(message, "📊 هنوز نمره‌ای برای شما ثبت نشده است.", education_result_kb())
         return
-    class_names = {class_id: name for class_id, name, _school in await classes_for_user(session, user)}
+    class_names = {class_id: name for class_id, name, _school in classes}
     lines = ["📊 <b>نمرات من</b>"]
     total = 0.0
     for grade, subject in rows:
@@ -303,7 +307,10 @@ async def submissions_panel(message: Message, session: AsyncSession, class_id: i
         .join(Homework, HomeworkSubmission.homework_id == Homework.id)
         .join(Subject, Homework.subject_id == Subject.id)
         .join(User, HomeworkSubmission.student_id == User.id)
-        .where(Homework.class_id == class_id)
+        .where(
+            Homework.class_id == class_id,
+            Homework.status == RecordStatus.APPROVED,
+        )
         .order_by(HomeworkSubmission.created_at.desc()).limit(30)
     )).all())
     if not rows:
@@ -328,8 +335,12 @@ async def review_open(callback: CallbackQuery, state: FSMContext, session: Async
         await callback.answer("پاسخ موردنظر پیدا نشد.", show_alert=True)
         return
     homework = await session.get(Homework, submission.homework_id)
-    if homework is None or not await is_class_manager(session, user, homework.class_id):
-        await callback.answer("دسترسی بررسی این پاسخ را ندارید.", show_alert=True)
+    if (
+        homework is None
+        or homework.status != RecordStatus.APPROVED
+        or not await is_class_manager(session, user, homework.class_id)
+    ):
+        await callback.answer("این پاسخ دیگر برای بررسی در دسترس نیست.", show_alert=True)
         return
     content = submission.text or ""
     await delete_panel(callback.message)
@@ -369,15 +380,27 @@ async def review_submit(message: Message, state: FSMContext, session: AsyncSessi
         return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     data = await state.get_data()
-    submission = await session.get(HomeworkSubmission, data["review_submission_id"])
+    submission = await session.scalar(
+        select(HomeworkSubmission)
+        .where(HomeworkSubmission.id == data["review_submission_id"])
+        .with_for_update()
+    )
     if submission is None:
         await state.clear()
         await message.answer("پاسخ موردنظر پیدا نشد.")
         return
-    homework = await session.get(Homework, submission.homework_id)
-    if homework is None or not await is_class_manager(session, user, homework.class_id):
+    homework = await session.scalar(
+        select(Homework)
+        .where(Homework.id == submission.homework_id)
+        .with_for_update()
+    )
+    if (
+        homework is None
+        or homework.status != RecordStatus.APPROVED
+        or not await is_class_manager(session, user, homework.class_id)
+    ):
         await state.clear()
-        await message.answer("دسترسی بررسی این پاسخ را ندارید.")
+        await message.answer("این تکلیف دیگر فعال نیست یا دسترسی بررسی آن را ندارید.")
         return
     submission.feedback = message.text.strip()
     submission.status = "reviewed"
@@ -527,20 +550,21 @@ async def evaluation_submit(message: Message, state: FSMContext, session: AsyncS
             if class_context is None:
                 raise ValueError("کلاس انتخاب‌شده در دسترس نیست.")
             local_today = datetime.now(ZoneInfo(class_context[2].timezone)).date()
-            existing = await session.scalar(select(Attendance).where(
-                Attendance.class_id == class_id, Attendance.student_id == student_id,
-                Attendance.attendance_date == local_today))
-            if existing:
-                existing.status, existing.note, existing.marked_by = parts[1], " | ".join(parts[2:]) or None, user.id
-            else:
-                session.add(Attendance(class_id=class_id, student_id=student_id, attendance_date=local_today, status=parts[1], note=" | ".join(parts[2:]) or None, marked_by=user.id))
+            await save_attendance(
+                session,
+                class_id=class_id,
+                student_id=student_id,
+                attendance_date=local_today,
+                status=parts[1],
+                note=" | ".join(parts[2:]) or None,
+                marked_by=user.id,
+            )
             result = "حضور‌وغیاب امروز ثبت شد."
         else:
             if len(parts) < 4:
                 raise ValueError("برای ثبت نمره حداقل چهار بخش لازم است.")
             subject_id, score, max_score = int(parts[1]), float(parts[2]), float(parts[3])
-            if score < 0 or max_score <= 0 or score > max_score:
-                raise ValueError("مقدار نمره معتبر نیست.")
+            validate_grade_values(score, max_score)
             linked_subject = await session.scalar(select(ClassSubject.id).where(
                 ClassSubject.class_id == class_id,
                 ClassSubject.subject_id == subject_id,

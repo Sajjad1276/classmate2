@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.core.config import get_settings
 from classmate.domain.dates import parse_school_date, parse_school_datetime
-from classmate.services.permissions import get_class_with_school, user_can_access_class
+from classmate.services.permissions import get_class_with_school, is_class_manager, user_can_access_class
 from classmate.services.outbox import enqueue_telegram_message
 from classmate.services.records import (
     add_subject,
@@ -42,6 +42,8 @@ async def _user(session, tg, private=False):
 
 async def _ctx(message, session, class_id: int | None = None):
     user = await _user(session, message.from_user, private=message.chat.type == "private")
+    if not user.is_active:
+        return None, user
     if message.chat.type in {"group", "supergroup"}:
         return await get_group_context(session, message.chat.id), user
     if class_id is None:
@@ -95,6 +97,9 @@ async def new_homework(message: Message, session: AsyncSession) -> None:
         await message.answer("این عملیات را در گروه کلاس اجرا کنید؛ پشتیبانی از اجرای خصوصی با شناسه کلاس به‌زودی اضافه می‌شود.")
         return
     class_group, _, school = ctx
+    if not await is_class_manager(session, user, class_group.id):
+        await message.answer("فقط مدیر کلاس می‌تواند تکلیف ثبت کند.")
+        return
     subject = await get_subject(session, class_group.id, school.id, subject_name)
     if subject is None:
         await message.answer(f"درس «{escape(subject_name)}» در این کلاس ثبت نشده. اول /subject_add")
@@ -156,6 +161,9 @@ async def new_exam(message: Message, session: AsyncSession) -> None:
         await message.answer("لطفاً این عملیات را در گروه کلاس انجام دهید.")
         return
     class_group, _, school = ctx
+    if not await is_class_manager(session, user, class_group.id):
+        await message.answer("فقط مدیر کلاس می‌تواند امتحان ثبت کند.")
+        return
     subject = await get_subject(session, class_group.id, school.id, subject_name)
     if subject is None:
         await message.answer("درس موردنظر پیدا نشد. اول /subject_add")
@@ -211,6 +219,9 @@ async def new_report(message: Message, session: AsyncSession) -> None:
         await message.answer("لطفاً این عملیات را در گروه کلاس انجام دهید.")
         return
     class_group, _, school = ctx
+    if not await is_class_manager(session, user, class_group.id):
+        await message.answer("فقط مدیر کلاس می‌تواند گزارش روزانه ثبت کند.")
+        return
     local_today = datetime.now(ZoneInfo(school.timezone)).date()
     record = await create_daily_report(
         session, class_group.id, local_today, body, user.id, title=title
@@ -262,6 +273,13 @@ async def timetable_set(message: Message, session: AsyncSession) -> None:
         await message.answer(
             "قالب: /timetable_set شنبه | ۱ | ریاضی | 08:00-08:45"
         )
+        return
+
+    if not 1 <= period <= 20:
+        await message.answer("شماره زنگ باید بین ۱ تا ۲۰ باشد.")
+        return
+    if ends <= starts:
+        await message.answer("ساعت پایان باید بعد از ساعت شروع باشد.")
         return
 
     ctx, user = await _ctx(message, session)
