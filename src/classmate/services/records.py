@@ -37,6 +37,19 @@ def normalize_subject_name(value: str) -> str:
     ).casefold()
 
 
+def _escape_limited(value: str, limit: int = 1800) -> str:
+    """Escape HTML while keeping Telegram messages below the API text limit."""
+    parts: list[str] = []
+    used = 0
+    for character in value:
+        escaped = escape(character)
+        if used + len(escaped) > limit:
+            return "".join(parts) + "…"
+        parts.append(escaped)
+        used += len(escaped)
+    return "".join(parts)
+
+
 async def get_group_context(session: AsyncSession, telegram_chat_id: int):
     return (
         await session.execute(
@@ -255,7 +268,7 @@ async def _queue_approved_record_publication(
             f"کلاس: {escape(class_group.name)}",
             f"درس: {escape(subject.name if subject is not None else '—')}",
             f"عنوان: {escape(record.title)}",
-            f"توضیحات: {escape(record.description[:1600])}",
+            f"توضیحات: {_escape_limited(record.description, 1500)}",
             f"موعد: {due}",
             f"ثبت‌کننده: {creator_name}",
         ]
@@ -266,7 +279,7 @@ async def _queue_approved_record_publication(
             f"کلاس: {escape(class_group.name)}",
             f"درس: {escape(subject.name if subject is not None else '—')}",
             f"عنوان: {escape(record.title)}",
-            f"محدوده: {escape(record.scope[:1200] or '—')}",
+            f"محدوده: {_escape_limited(record.scope or '—', 1400)}",
             f"زمان: {jalali_datetime(record.scheduled_at, timezone_name)}",
             f"ثبت‌کننده: {creator_name}",
         ]
@@ -276,7 +289,7 @@ async def _queue_approved_record_publication(
             f"کلاس: {escape(class_group.name)}",
             f"تاریخ: {jalali_date(record.report_date)}",
             f"عنوان: {escape((record.title or 'گزارش روزانه')[:180])}",
-            escape(record.body[:2200]),
+            _escape_limited(record.body, 1700),
             f"ثبت‌کننده: {creator_name}",
         ]
     else:
