@@ -240,7 +240,7 @@ async def back_to_review_queue(callback: CallbackQuery, session: AsyncSession) -
 
 @router.callback_query(F.data.startswith("approve:"))
 async def on_approve(callback: CallbackQuery, session: AsyncSession) -> None:
-    if callback.message and callback.message.chat.type != "private":
+    if callback.message is None or callback.message.chat.type != "private":
         await callback.answer("بررسی درخواست‌ها از این پس فقط در پنل خصوصی ربات انجام می‌شود.", show_alert=True)
         return
     _, entity_type, id_s = callback.data.split(":", 2)
@@ -283,7 +283,7 @@ async def on_approve(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("reject:"))
 async def on_reject(callback: CallbackQuery, session: AsyncSession) -> None:
-    if callback.message and callback.message.chat.type != "private":
+    if callback.message is None or callback.message.chat.type != "private":
         await callback.answer("رد درخواست‌ها از این پس فقط در پنل خصوصی ربات انجام می‌شود.", show_alert=True)
         return
     _, entity_type, id_s = callback.data.split(":", 2)
