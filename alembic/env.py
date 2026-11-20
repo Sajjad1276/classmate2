@@ -19,7 +19,7 @@ target_metadata = Base.metadata
 load_dotenv()
 database_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
 if not database_url or database_url.startswith("driver://"):
-    raise RuntimeError("DATABASE_URM must be configured before running Alembic migrations.")
+    raise RuntimeError("DATABASE_URL must be configured before running Alembic migrations.")
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql+asyncpg://", 1)
 elif database_url.startswith("postgresql://"):
