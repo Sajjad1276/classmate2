@@ -80,6 +80,7 @@ async def test_class_manager_records_are_auto_approved_and_published(world):
         audit_entry = await session.scalar(
             select(AuditLog).where(
                 AuditLog.class_id == class_group.id,
+                AuditLog.entity_type == entity_type,
                 AuditLog.entity_id == record.id,
                 AuditLog.action == "auto_approve",
             )
