@@ -305,6 +305,12 @@ async def start_exam_after_class(message, state, session, class_id: int) -> None
 
 
 async def start_report_after_class(message, state, session, class_id: int) -> None:
+    if message.chat.type != "private":
+        await state.clear()
+        await message.answer(
+            "برای حفظ حریم خصوصی، ثبت گزارش روزانه فقط از گفت‌وگوی خصوصی ربات انجام می‌شود."
+        )
+        return
     await state.update_data(class_id=class_id)
     await state.set_state(ReportForm.body)
     await message.answer("متن گزارش امروز را ارسال کنید:", reply_markup=cancel_kb())
@@ -518,6 +524,7 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
 @router.message(ReportForm.body, F.text)
 async def report_body(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.chat.type != "private":
+        await state.clear()
         await message.answer("ثبت گزارش روزانه فقط در گفت‌وگوی خصوصی ربات انجام می‌شود.")
         return
     if message.text == "❌ انصراف":
