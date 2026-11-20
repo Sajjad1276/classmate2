@@ -50,7 +50,17 @@ def test_alembic_head_installs_without_bot_token_and_is_repeatable(tmp_path, mon
             "homework_submissions",
             "poll_responses",
             "reminder_jobs",
+            "telegram_outbox",
         }.issubset(tables)
         assert "alembic_version" in tables
     finally:
         engine.dispose()
+
+
+
+def test_initial_migration_snapshot_is_frozen():
+    from classmate.db.models import Base
+    from classmate.db.schema_v0001 import SnapshotBase
+
+    assert "telegram_outbox" in Base.metadata.tables
+    assert "telegram_outbox" not in SnapshotBase.metadata.tables
