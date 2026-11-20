@@ -10,7 +10,7 @@ from classmate.domain.dates import jalali_date, jalali_datetime
 from classmate.db.models import DailyReport, Exam, Homework, Subject, User
 from classmate.services.permissions import can_approve, get_class_with_school
 from classmate.services.records import approve_record, reject_record
-from classmate.bot.handlers.ui import render_pending_for_class, show_pending_for_user
+from classmate.bot.handlers.ui import delete_panel, render_pending_for_class, show_pending_for_user
 from classmate.services.users import ensure_user
 
 router = Router(name="approvals")
@@ -71,6 +71,7 @@ async def open_review_item(callback: CallbackQuery, session: AsyncSession) -> No
     record = await session.get(model, record_id)
     if record is None or record.class_id != class_id or record.status != RecordStatus.PENDING:
         await callback.answer("این درخواست دیگر در صف بررسی نیست.", show_alert=True)
+        await delete_panel(callback.message)
         await render_pending_for_class(callback.message, session, user, class_id)
         return
 
@@ -233,6 +234,7 @@ async def back_to_review_queue(callback: CallbackQuery, session: AsyncSession) -
         await callback.answer("کلاس انتخاب‌شده معتبر نیست.", show_alert=True)
         return
     user = await _user(session, callback.from_user, private=True)
+    await delete_panel(callback.message)
     await render_pending_for_class(callback.message, session, user, class_id)
     await callback.answer()
 
