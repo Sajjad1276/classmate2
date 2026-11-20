@@ -57,8 +57,8 @@ async def school_new(message: Message, session: AsyncSession) -> None:
         return
 
     user = await _user(session, message.from_user, private=True)
-    if not user.is_platform_admin:
-        await message.answer("فقط مدیر کل سامانه می‌تواند مدرسه بسازد.")
+    if not user.is_active or not user.is_platform_admin:
+        await message.answer("فقط مدیر فعال سامانه می‌تواند مدرسه بسازد.")
         return
 
     try:
@@ -218,6 +218,9 @@ async def join_class(message: Message, session: AsyncSession) -> None:
         return
 
     user = await _user(session, message.from_user, private=True)
+    if not user.is_active:
+        await message.answer("حساب کاربری شما غیرفعال است.")
+        return
     code_h = hash_code(code)
     cls = await session.scalar(
         select(ClassGroup)
@@ -250,6 +253,9 @@ async def list_classes(message: Message, session: AsyncSession) -> None:
         await message.answer("این فرمان را در گفت‌وگوی خصوصی ربات اجرا کنید: /classes")
         return
     user = await _user(session, message.from_user, private=True)
+    if not user.is_active:
+        await message.answer("حساب کاربری شما غیرفعال است.")
+        return
 
     from sqlalchemy import or_
 
