@@ -147,6 +147,11 @@ async def activate_student_membership(
     session: AsyncSession, class_id: int, user_id: int
 ) -> ClassMembership:
     """Join an active class as a student without restoring stale privileges."""
+    active_user = await session.scalar(
+        select(User.id).where(User.id == user_id, User.is_active.is_(True))
+    )
+    if active_user is None:
+        raise PermissionError("حساب کاربری فعال نیست.")
     if await get_class_with_school(session, class_id) is None:
         raise ValueError("کلاس موردنظر فعال نیست یا در دسترس قرار ندارد.")
     membership = await session.scalar(
