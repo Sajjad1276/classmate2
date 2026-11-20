@@ -8,8 +8,10 @@ from sqlalchemy import select
 
 from classmate.core.enums import EntityType, OutboxStatus, RecordStatus, ReminderStatus, Role
 from classmate.db.models import (
+    Attendance,
     ClassGroup,
     ClassMembership,
+    Grade,
     Homework,
     Poll,
     PollOption,
@@ -621,3 +623,80 @@ async def test_student_enrollment_rejects_inactive_user(world):
         await activate_student_membership(
             world["session"], world["class"].id, world["student"].id
         )
+
+
+
+@pytest.mark.asyncio
+async def test_personal_records_hide_data_after_membership_revocation(world):
+    from classmate.services.phase2 import student_attendance, student_grades
+
+    session = world["session"]
+    student = world["student"]
+    class_group = world["class"]
+    session.add(
+        Grade(
+            class_id=class_group.id,
+            student_id=student.id,
+            subject_id=world["subject"].id,
+            source_type="manual",
+            score=18,
+            max_score=20,
+            graded_by=world["manager"].id,
+        )
+    )
+    session.add(
+        Attendance(
+            class_id=class_group.id,
+            student_id=student.id,
+            attendance_date=date.today(),
+            status="present",
+            marked_by=world["manager"].id,
+        )
+    )
+    await session.flush()
+
+    membership = await session.scalar(
+        select(ClassMembership).where(
+            ClassMembership.class_id == class_group.id,
+            ClassMembership.user_id == student.id,
+        )
+    )
+    membership.is_active = False
+    await session.flush()
+
+    assert await student_grades(session, student.id, [class_group.id]) == []
+    assert await student_attendance(session, student.id, [class_group.id]) == []
+
+
+@pytest.mark.asyncio
+async def test_personal_records_hide_data_when_school_is_inactive(world):
+    from classmate.services.phase2 import student_attendance, student_grades
+
+    session = world["session"]
+    student = world["student"]
+    class_group = world["class"]
+    session.add(
+        Grade(
+            class_id=class_group.id,
+            student_id=student.id,
+            subject_id=world["subject"].id,
+            source_type="manual",
+            score=19,
+            max_score=20,
+            graded_by=world["manager"].id,
+        )
+    )
+    session.add(
+        Attendance(
+            class_id=class_group.id,
+            student_id=student.id,
+            attendance_date=date.today(),
+            status="present",
+            marked_by=world["manager"].id,
+        )
+    )
+    world["school"].is_active = False
+    await session.flush()
+
+    assert await student_grades(session, student.id, [class_group.id]) == []
+    assert await student_attendance(session, student.id, [class_group.id]) == []
