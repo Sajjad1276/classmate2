@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.bot.handlers.ui import classes_for_user, get_user, menu_for
+from classmate.bot.handlers.ui import classes_for_user, get_user, menu_for, render_panel
 from classmate.bot.keyboards import cancel_kb, class_picker
 from classmate.bot.states import AnnouncementForm, EditRecordForm, SearchForm
 from classmate.domain.dates import jalali_date, jalali_datetime, persian_weekday
@@ -68,7 +68,7 @@ async def _render_dashboard(message: Message, session: AsyncSession, user) -> No
         lines.append(f"\n📣 <b>آخرین اطلاعیه‌ها</b> ({len(data['announcements'])})")
         for item, cls in data["announcements"][:3]:
             lines.append(f"• {escape(item.title)} — {escape(cls.name)}")
-    await message.answer("\n".join(lines), reply_markup=dashboard_kb())
+    await render_panel(message, "\n".join(lines), dashboard_kb())
 
 
 @router.message(F.text.in_({"🏠 داشبورد من", "داشبورد من"}))
@@ -119,7 +119,7 @@ async def _render_calendar(message: Message, session: AsyncSession, class_id: in
             lines.append(f"• زنگ {entry.period} — {escape(subject.name)} ({time})")
     if not exams and not homeworks and not todays:
         lines.append("\nبرای این بازه رویداد آموزشی ثبت نشده است.")
-    await message.answer("\n".join(lines), reply_markup=dashboard_kb())
+    await render_panel(message, "\n".join(lines), dashboard_kb())
 
 
 @router.message(F.text.in_({"🔎 جست‌وجو", "جست‌وجو"}))

@@ -6,7 +6,7 @@ from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,13 +46,14 @@ _CLASS_CACHE: dict[int, tuple[float, list[tuple[int, str, str]]]] = {}
 
 
 async def render_panel(message: Message, text: str, markup) -> None:
-    """Send the panel with its inline keyboard in the initial Telegram request.
+    """Send an actionable inline panel and close the old Reply Keyboard.
 
     Editing a freshly sent message is not guaranteed by every Telegram client or
     proxy.  Sending the markup with the original request prevents a panel from
     appearing as plain text with no actionable options.
     """
     await message.answer(text, reply_markup=markup)
+    await message.answer("از گزینه‌های پنل بالا انتخاب کنید.", reply_markup=ReplyKeyboardRemove())
 
 
 async def get_user(session: AsyncSession, tg, private: bool = True) -> User:
