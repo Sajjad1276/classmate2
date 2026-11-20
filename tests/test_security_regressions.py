@@ -700,3 +700,26 @@ async def test_personal_records_hide_data_when_school_is_inactive(world):
 
     assert await student_grades(session, student.id, [class_group.id]) == []
     assert await student_attendance(session, student.id, [class_group.id]) == []
+
+
+@pytest.mark.parametrize(
+    ("score", "max_score", "valid"),
+    [
+        (18.0, 20.0, True),
+        (float("nan"), 20.0, False),
+        (float("inf"), 20.0, False),
+        (18.0, float("inf"), False),
+        (-1.0, 20.0, False),
+        (21.0, 20.0, False),
+    ],
+)
+def test_grade_values_reject_non_finite_and_out_of_range_numbers(
+    score, max_score, valid
+):
+    from classmate.services.phase2 import validate_grade_values
+
+    if valid:
+        validate_grade_values(score, max_score)
+    else:
+        with pytest.raises(ValueError):
+            validate_grade_values(score, max_score)
