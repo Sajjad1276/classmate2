@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.bot.handlers.ui import classes_for_user, get_user, menu_for
+from classmate.bot.handlers.ui import classes_for_user, get_user, menu_for, render_panel
 from classmate.bot.keyboards import cancel_kb, class_picker
 from classmate.bot.states import EvaluationForm, PollCreateForm, ReviewSubmissionForm, SubmissionForm
 from classmate.core.enums import Role
@@ -48,7 +48,11 @@ async def submit_entry(message: Message, session: AsyncSession) -> None:
     elif len(classes) == 1:
         await _show_homeworks(message, session, classes[0][0])
     else:
-        await message.answer("🏫 کلاس موردنظر را انتخاب کنید:", reply_markup=class_picker(classes, action="submissions"))
+        await render_panel(
+            message,
+            "🏫 کلاس موردنظر را انتخاب کنید:",
+            class_picker(classes, action="submissions"),
+        )
 
 
 async def _show_homeworks(message: Message, session: AsyncSession, class_id: int) -> None:
@@ -63,7 +67,7 @@ async def _show_homeworks(message: Message, session: AsyncSession, class_id: int
         lines.append(f"\n• {escape(subject.name)} — {escape(homework.title)} | موعد: {due}")
         buttons.append([color_button("🔵", f"{subject.name}: {homework.title[:30]}", f"p2:submit:{homework.id}")])
     buttons.append([color_button("🔴", "انصراف", "p2:cancel")])
-    await message.answer("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await render_panel(message, "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons))
 
 
 @router.callback_query(F.data.startswith("p2:submit:"))
@@ -155,7 +159,11 @@ async def polls(message: Message, session: AsyncSession) -> None:
         await message.answer("🗳 در حال حاضر نظرسنجی فعالی برای شما وجود ندارد.")
         return
     buttons = [[color_button("🔵", poll.question[:45], f"p2:poll:{poll.id}")] for poll in rows]
-    await message.answer("🗳 <b>نظرسنجی‌های فعال</b>\n\nبرای شرکت، یک مورد را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await render_panel(
+        message,
+        "🗳 <b>نظرسنجی‌های فعال</b>\n\nبرای شرکت، یک مورد را انتخاب کنید:",
+        InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
 
 
 @router.callback_query(F.data.startswith("p2:poll:"))
@@ -205,7 +213,11 @@ async def manager_evaluation(message: Message, session: AsyncSession) -> None:
     if not classes:
         await message.answer("شما مدیر هیچ کلاسی نیستید.")
         return
-    await message.answer("🏫 کلاس موردنظر برای ارزیابی را انتخاب کنید:", reply_markup=class_picker(classes, action="evaluation"))
+    await render_panel(
+        message,
+        "🏫 کلاس موردنظر برای ارزیابی را انتخاب کنید:",
+        class_picker(classes, action="evaluation"),
+    )
 
 
 @router.message(F.text == "📝 بررسی پاسخ‌ها")
@@ -215,7 +227,11 @@ async def review_entry(message: Message, session: AsyncSession) -> None:
     if not classes:
         await message.answer("شما مدیر هیچ کلاسی نیستید.")
         return
-    await message.answer("🏫 کلاس موردنظر را انتخاب کنید:", reply_markup=class_picker(classes, action="review_submissions"))
+    await render_panel(
+        message,
+        "🏫 کلاس موردنظر را انتخاب کنید:",
+        class_picker(classes, action="review_submissions"),
+    )
 
 
 async def submissions_panel(message: Message, session: AsyncSession, class_id: int) -> None:
@@ -234,7 +250,11 @@ async def submissions_panel(message: Message, session: AsyncSession, class_id: i
     for submission, homework, subject, student in rows:
         label = f"{student.full_name[:16]} — {homework.title[:22]}"
         buttons.append([color_button("🟡", label, f"p2:review:{submission.id}")])
-    await message.answer("📝 <b>پاسخ‌های ارسالی</b>\n\nبرای بررسی و ثبت بازخورد یک مورد را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await render_panel(
+        message,
+        "📝 <b>پاسخ‌های ارسالی</b>\n\nبرای بررسی و ثبت بازخورد یک مورد را انتخاب کنید:",
+        InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
 
 
 @router.callback_query(F.data.startswith("p2:review:"))
@@ -289,10 +309,11 @@ async def review_submit(message: Message, state: FSMContext, session: AsyncSessi
 
 async def evaluation_panel(message: Message, session: AsyncSession, state: FSMContext, class_id: int) -> None:
     await state.update_data(evaluation_class_id=class_id)
-    await message.answer(
+    await render_panel(
+        message,
         "👨‍🏫 <b>ارزیابی کلاس</b>\n\n"
         "نوع عملیات را انتخاب کنید. برای حفظ دقت اطلاعات، شناسه دانش‌آموز و درس از بخش «کلاس‌های من» قابل مشاهده است.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+        InlineKeyboardMarkup(inline_keyboard=[
             [color_button("🟢", "ثبت حضور‌وغیاب", "p2:evaluate:attendance")],
             [color_button("🟡", "ثبت نمره و بازخورد", "p2:evaluate:grade")],
             [color_button("🔵", "ایجاد نظرسنجی", "p2:evaluate:poll")],

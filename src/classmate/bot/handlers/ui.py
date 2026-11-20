@@ -351,10 +351,11 @@ async def btn_manage(message: Message) -> None:
 async def btn_admin(message: Message) -> None:
     if message.chat.type != "private":
         return
-    await message.answer(
+    await render_panel(
+        message,
         "🏛 <b>مدیریت سامانه</b>\n\n"
         "عملیات موردنظر را انتخاب کنید:",
-        reply_markup=admin_menu(),
+        admin_menu(),
     )
 
 

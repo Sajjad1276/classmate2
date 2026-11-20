@@ -95,7 +95,11 @@ async def calendar_entry(callback: CallbackQuery, session: AsyncSession) -> None
     elif len(classes) == 1:
         await _render_calendar(callback.message, session, classes[0][0], classes[0][1])
     else:
-        await callback.message.answer("🏫 کلاس موردنظر برای مشاهده تقویم را انتخاب کنید:", reply_markup=class_picker(classes, action="calendar"))
+        await render_panel(
+            callback.message,
+            "🏫 کلاس موردنظر برای مشاهده تقویم را انتخاب کنید:",
+            class_picker(classes, action="calendar"),
+        )
     await callback.answer()
 
 
@@ -165,7 +169,11 @@ async def notification_settings(message: Message, session: AsyncSession) -> None
         await message.answer("برای تنظیم اعلان‌ها ابتدا عضو یک کلاس شوید.")
         return
     if len(classes) > 1:
-        await message.answer("🏫 کلاس موردنظر را انتخاب کنید:", reply_markup=class_picker(classes, action="prefs"))
+        await render_panel(
+            message,
+            "🏫 کلاس موردنظر را انتخاب کنید:",
+            class_picker(classes, action="prefs"),
+        )
         return
     await _render_preferences(message, session, user, classes[0][0], classes[0][1])
 
@@ -177,7 +185,11 @@ async def _render_preferences(message: Message, session: AsyncSession, user, cla
         [InlineKeyboardButton(text=f"📝 امتحانات: {'فعال' if pref.exams_enabled else 'خاموش'}", callback_data=f"p1:toggle:exam:{class_id}" )],
         [InlineKeyboardButton(text="🏠 بازگشت", callback_data="p1:dashboard")],
     ])
-    await message.answer(f"🔔 <b>تنظیم اعلان‌ها — {escape(class_name)}</b>\n\nاعلان‌های موردنظر را فعال یا خاموش کنید.", reply_markup=kb)
+    await render_panel(
+        message,
+        f"🔔 <b>تنظیم اعلان‌ها — {escape(class_name)}</b>\n\nاعلان‌های موردنظر را فعال یا خاموش کنید.",
+        kb,
+    )
 
 
 @router.callback_query(F.data.startswith("p1:toggle:"))
@@ -217,7 +229,7 @@ async def announcements(message: Message, session: AsyncSession) -> None:
         for item, cls in rows:
             parts.append(f"\n<b>{escape(item.title)}</b> — {escape(cls.name)}\n{escape(item.body)}")
         text = "\n".join(parts)
-    await message.answer(text, reply_markup=announcement_kb(manager))
+    await render_panel(message, text, announcement_kb(manager))
 
 
 @router.message(F.text.in_({"🗂 مدیریت محتوا", "مدیریت محتوا"}))
@@ -229,7 +241,11 @@ async def content_management(message: Message, session: AsyncSession) -> None:
     if not classes:
         await message.answer("شما مدیر هیچ کلاسی نیستید.")
         return
-    await message.answer("🏫 کلاس موردنظر برای مدیریت محتوا را انتخاب کنید:", reply_markup=class_picker(classes, action="content"))
+    await render_panel(
+        message,
+        "🏫 کلاس موردنظر برای مدیریت محتوا را انتخاب کنید:",
+        class_picker(classes, action="content"),
+    )
 
 
 async def _render_content(message: Message, session: AsyncSession, class_id: int) -> None:
@@ -317,7 +333,11 @@ async def new_announcement(callback: CallbackQuery, state: FSMContext, session: 
     if not classes:
         await callback.answer("دسترسی ایجاد اطلاعیه ندارید.", show_alert=True)
         return
-    await callback.message.answer("🏫 کلاس اطلاعیه را انتخاب کنید:", reply_markup=class_picker(classes, action="announcement"))
+    await render_panel(
+        callback.message,
+        "🏫 کلاس اطلاعیه را انتخاب کنید:",
+        class_picker(classes, action="announcement"),
+    )
     await callback.answer()
 
 
