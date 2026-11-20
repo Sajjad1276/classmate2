@@ -238,7 +238,7 @@ async def join_class(message: Message, session: AsyncSession) -> None:
     if (
         cls.member_join_code_expires_at is None
         or cls.member_join_code_expires_at.replace(tzinfo=cls.member_join_code_expires_at.tzinfo or timezone.utc)
-        < datetime.now(timezone.utc)
+        <= datetime.now(timezone.utc)
     ):
         await message.answer("این کد منقضی شده است.")
         return
