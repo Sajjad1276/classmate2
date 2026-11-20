@@ -1,4 +1,4 @@
-"""Historical compatibility revision; the frozen 0001 baseline includes phase-two tables."""
+"""Ensure phase-two learning tables exist on legacy schema installations."""
 
 from typing import Sequence, Union
 
@@ -10,11 +10,33 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _phase_two_tables():
+    from classmate.db.schema_v0001 import (
+        Attendance,
+        Grade,
+        HomeworkSubmission,
+        Poll,
+        PollOption,
+        PollResponse,
+    )
+
+    return (
+        HomeworkSubmission.__table__,
+        Grade.__table__,
+        Attendance.__table__,
+        Poll.__table__,
+        PollOption.__table__,
+        PollResponse.__table__,
+    )
+
+
 def upgrade() -> None:
-    # Kept as a no-op for databases that already ran the original bootstrap.
-    pass
+    bind = op.get_bind()
+    for table in _phase_two_tables():
+        table.create(bind=bind, checkfirst=True)
 
 
 def downgrade() -> None:
-    # Never drop submissions, grades, attendance or poll data automatically.
+    # These tables may have existed before 0003 because of create_all bootstrap.
+    # A blind downgrade could delete learner work, grades and attendance.
     pass
