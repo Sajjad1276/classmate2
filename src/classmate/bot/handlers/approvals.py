@@ -1,3 +1,4 @@
+from html import escape
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
@@ -58,6 +59,8 @@ async def on_approve(callback: CallbackQuery, session: AsyncSession) -> None:
     ok, msg = await approve_record(
         session, entity_type, record_id, user.id, school.id, record.class_id, school.timezone
     )
+    if ok:
+        await session.commit()
     await callback.answer(msg, show_alert=not ok)
     if ok and callback.message:
         await callback.message.edit_text(callback.message.html_text + f"\n\n✅ {msg}")
@@ -92,6 +95,8 @@ async def on_reject(callback: CallbackQuery, session: AsyncSession) -> None:
     ok, msg = await reject_record(
         session, entity_type, record_id, user.id, school.id, record.class_id
     )
+    if ok:
+        await session.commit()
     await callback.answer(msg, show_alert=not ok)
     if ok and callback.message:
         await callback.message.edit_text(callback.message.html_text + f"\n\n❌ {msg}")
@@ -132,5 +137,5 @@ async def cmd_pending(message: Message, session: AsyncSession) -> None:
     lines = ["🕓 <b>در انتظار تأیید</b>"]
     for label, rec in pending:
         title = getattr(rec, "title", None) or "—"
-        lines.append(f"• {label} #{rec.id}: {title}")
+        lines.append(f"• {escape(str(label))} #{rec.id}: {escape(str(title))}")
     await message.answer("\n".join(lines))
