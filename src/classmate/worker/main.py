@@ -143,7 +143,10 @@ async def process_once(bot: Bot) -> int:
                                     recipient = await s2.scalar(
                                         select(User).where(User.telegram_id == row.target_id)
                                     )
-                                    if recipient is not None:
+                                    if (
+                                        recipient is not None
+                                        and isinstance(exc, (TelegramForbiddenError, TelegramNotFound))
+                                    ):
                                         recipient.private_chat_started = False
                             else:
                                 row.status = ReminderStatus.RETRY
