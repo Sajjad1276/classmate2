@@ -1,12 +1,12 @@
 """Phase-two learning workflow services."""
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.core.enums import RecordStatus
-from classmate.db.models import Attendance, ClassMembership, Exam, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, Subject, User
+from classmate.db.models import Attendance, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, Subject, User
 from classmate.services.permissions import user_can_access_class
 
 
