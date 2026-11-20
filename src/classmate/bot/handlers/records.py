@@ -10,6 +10,7 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.core.config import get_settings
+from classmate.core.enums import RecordStatus
 from classmate.domain.dates import parse_school_date, parse_school_datetime
 from classmate.services.permissions import get_class_with_school, is_class_manager, user_can_access_class
 from classmate.services.outbox import enqueue_telegram_message
@@ -116,8 +117,9 @@ async def new_homework(message: Message, session: AsyncSession) -> None:
     record = await create_homework(
         session, class_group.id, subject, title, description, due_on, user.id
     )
+    pending = record.status == RecordStatus.PENDING
     body = (
-        f"🕓 <b>تکلیف جدید برای بررسی</b>\n"
+        f"{'🕓 <b>تکلیف جدید برای بررسی</b>' if pending else '✅ <b>تکلیف جدید ثبت و منتشر شد</b>'}\n"
         f"درس: {escape(subject.name)}\n"
         f"عنوان: {escape(record.title)}\n"
         f"ثبت‌کننده: {escape(user.full_name)}"
@@ -133,11 +135,15 @@ async def new_homework(message: Message, session: AsyncSession) -> None:
             action_id=record.id,
             entity_type="homework",
             entity_id=record.id,
-            expected_record_status="PENDING",
+            expected_record_status=record.status.value,
+            action_type="homework" if pending else None,
+            action_id=record.id if pending else None,
             idempotency_key=f"approval:homework:{record.id}",
         )
     await session.commit()
-    await message.answer(f"تکلیف ثبت شد و در انتظار بررسی و تأیید است (#{record.id}).")
+    await message.answer(
+        f"تکلیف ثبت و منتشر شد (#{record.id})." if not pending else f"تکلیف ثبت شد و در انتظار بررسی و تأیید است (#{record.id})."
+    )
 
 
 @router.message(Command("new_exam"))
@@ -177,8 +183,9 @@ async def new_exam(message: Message, session: AsyncSession) -> None:
     record = await create_exam(
         session, class_group.id, subject, title, scope, "quiz", scheduled, user.id
     )
+    pending = record.status == RecordStatus.PENDING
     body = (
-        f"🕓 <b>امتحان جدید برای بررسی</b>\n"
+        f"{'🕓 <b>امتحان جدید برای بررسی</b>' if pending else '✅ <b>امتحان جدید ثبت و منتشر شد</b>'}\n"
         f"درس: {escape(subject.name)}\n"
         f"عنوان: {escape(record.title)}\n"
         f"ثبت‌کننده: {escape(user.full_name)}"
@@ -194,11 +201,15 @@ async def new_exam(message: Message, session: AsyncSession) -> None:
             action_id=record.id,
             entity_type="exam",
             entity_id=record.id,
-            expected_record_status="PENDING",
+            expected_record_status=record.status.value,
+            action_type="exam" if pending else None,
+            action_id=record.id if pending else None,
             idempotency_key=f"approval:exam:{record.id}",
         )
     await session.commit()
-    await message.answer(f"امتحان ثبت شد و در انتظار بررسی و تأیید است (#{record.id}).")
+    await message.answer(
+        f"امتحان ثبت و منتشر شد (#{record.id})." if not pending else f"امتحان ثبت شد و در انتظار بررسی و تأیید است (#{record.id})."
+    )
 
 
 @router.message(Command("new_report"))
@@ -226,8 +237,9 @@ async def new_report(message: Message, session: AsyncSession) -> None:
     record = await create_daily_report(
         session, class_group.id, local_today, body, user.id, title=title
     )
+    pending = record.status == RecordStatus.PENDING
     text = (
-        f"🕓 <b>گزارش روزانه برای بررسی</b>\n"
+        f"{'🕓 <b>گزارش روزانه جدید برای بررسی</b>' if pending else '✅ <b>گزارش روزانه جدید ثبت و منتشر شد</b>'}\n"
         f"عنوان: {escape(record.title or '')}\n"
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
@@ -242,11 +254,15 @@ async def new_report(message: Message, session: AsyncSession) -> None:
             action_id=record.id,
             entity_type="report",
             entity_id=record.id,
-            expected_record_status="PENDING",
+            expected_record_status=record.status.value,
+            action_type="report" if pending else None,
+            action_id=record.id if pending else None,
             idempotency_key=f"approval:report:{record.id}",
         )
     await session.commit()
-    await message.answer(f"گزارش ثبت شد و در انتظار بررسی و تأیید است (#{record.id}).")
+    await message.answer(
+        f"گزارش روزانه ثبت و منتشر شد (#{record.id})." if not pending else f"گزارش روزانه ثبت شد و در انتظار بررسی و تأیید است (#{record.id})."
+    )
 
 
 @router.message(Command("timetable_set"))
