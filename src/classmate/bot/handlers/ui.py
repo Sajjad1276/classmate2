@@ -289,7 +289,7 @@ async def run_view(
         lines = [f"🕓 <b>در انتظار — {escape(class_group.name)}</b>"]
         for label, rec in pending:
             title = getattr(rec, "title", None) or "—"
-            lines.append(f"• {label} #{rec.id}: {escape(str(title))}")
+            lines.append(f"• {escape(str(label))} #{rec.id}: {escape(str(title))}")
         await _education_result(target, "\n".join(lines), close_reply_keyboard)
 
 
@@ -534,7 +534,7 @@ async def cb_pick(callback: CallbackQuery, session: AsyncSession, state: FSMCont
         return
 
     manager_actions = {
-        "content", "announcement", "evaluation", "review_submissions", "submissions",
+        "content", "announcement", "evaluation", "review_submissions",
         "hw", "exam", "report", "codes", "subject", "timetable", "group",
     }
     if action in manager_actions and not await is_class_manager(session, user, class_id):
