@@ -20,6 +20,7 @@ def main_menu(
         [KeyboardButton(text="🏠 داشبورد من", style="primary"), KeyboardButton(text="🏫 کلاس‌های من")],
         [KeyboardButton(text="🎓 بخش آموزشی", style="primary"), KeyboardButton(text="🔎 جست‌وجو")],
         [KeyboardButton(text="🔑 ورود با کد دعوت", style="success")],
+        [KeyboardButton(text="📋 ثبت گزارش روزانه")],
     ]
     if is_manager or is_admin:
         rows.append([KeyboardButton(text="⚙️ مدیریت", style="primary")])
@@ -81,13 +82,37 @@ def education_result_kb() -> InlineKeyboardMarkup:
     )
 
 
-def management_menu(*, is_admin: bool = False, is_manager: bool = False, is_approver: bool = False) -> InlineKeyboardMarkup:
-    rows = [
-        [InlineKeyboardButton(text="⚙️ کلاس", callback_data="menu:class_manage", style="primary"), InlineKeyboardButton(text="🗂 محتوا", callback_data="menu:content", style="primary")],
-        [InlineKeyboardButton(text="👨‍🏫 ارزیابی", callback_data="menu:evaluation"), InlineKeyboardButton(text="📝 پاسخ‌ها", callback_data="menu:reviews")],
-    ]
+def management_menu(
+    *,
+    is_admin: bool = False,
+    is_manager: bool = False,
+    is_approver: bool = False,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
     if is_manager or is_admin:
-        rows.append([InlineKeyboardButton(text="➕ ثبت اطلاعات", callback_data="menu:new", style="success")])
+        rows.extend(
+            [
+                [
+                    InlineKeyboardButton(
+                        text="⚙️ کلاس", callback_data="menu:class_manage", style="primary"
+                    ),
+                    InlineKeyboardButton(
+                        text="🗂 محتوا", callback_data="menu:content", style="primary"
+                    ),
+                ],
+                [
+                    InlineKeyboardButton(text="👨‍🏫 ارزیابی", callback_data="menu:evaluation"),
+                    InlineKeyboardButton(text="📝 پاسخ‌ها", callback_data="menu:reviews"),
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="➕ ثبت اطلاعات",
+                        callback_data="menu:new",
+                        style="success",
+                    )
+                ],
+            ]
+        )
     if is_approver:
         rows.append([InlineKeyboardButton(text="🕓 موارد در انتظار بررسی", callback_data="menu:pending")])
     if is_admin:
@@ -108,14 +133,37 @@ def manage_class_menu() -> InlineKeyboardMarkup:
     )
 
 
-def admin_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🏛 ایجاد مدرسه", callback_data="adm:school", style="success")],
-            [InlineKeyboardButton(text="🎓 ایجاد کلاس", callback_data="adm:class", style="success")],
-            [InlineKeyboardButton(text="« بازگشت به منو", callback_data="ui:home", style="danger")],
+def admin_menu(*, is_platform_admin: bool = False) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if is_platform_admin:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🏛 ایجاد مدرسه",
+                    callback_data="adm:school",
+                    style="success",
+                )
+            ]
+        )
+    rows.extend(
+        [
+            [
+                InlineKeyboardButton(
+                    text="🎓 ایجاد کلاس",
+                    callback_data="adm:class",
+                    style="success",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="« بازگشت به منو",
+                    callback_data="ui:home",
+                    style="danger",
+                )
+            ],
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def group_panel(*, class_id: int, class_name: str = "") -> InlineKeyboardMarkup:
