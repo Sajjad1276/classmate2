@@ -34,7 +34,7 @@ async def save_submission(session: AsyncSession, homework_id: int, student_id: i
         student is None
         or not student.is_active
         or membership_id is None
-        or await user_can_access_class(session, student, homework.class_id) is False
+        or not await user_can_access_class(session, student, homework.class_id)
     ):
         raise PermissionError("فقط عضو فعال کلاس می‌تواند پاسخ تکلیف را ارسال کند.")
     item = await session.scalar(select(HomeworkSubmission).where(HomeworkSubmission.homework_id == homework_id, HomeworkSubmission.student_id == student_id))
@@ -109,7 +109,7 @@ async def answer_poll(session: AsyncSession, poll_id: int, user_id: int, option_
         user is None
         or not user.is_active
         or membership_id is None
-        or await user_can_access_class(session, user, poll.class_id) is False
+        or not await user_can_access_class(session, user, poll.class_id)
     ):
         return False
     option = await session.scalar(
