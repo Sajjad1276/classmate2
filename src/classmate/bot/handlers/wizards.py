@@ -9,7 +9,6 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.bot.keyboards import (
@@ -37,7 +36,6 @@ from classmate.bot.states import (
 from classmate.core.enums import RecordStatus, Role
 from classmate.db.models import (
     AcademicYear,
-    DailyReport,
     ClassGroup,
     ClassMembership,
     ClassSubject,
@@ -643,35 +641,11 @@ async def report_confirm(callback: CallbackQuery, state: FSMContext, session: As
 
     _, _, school = context
     local_today = datetime.now(ZoneInfo(school.timezone)).date()
-    existing_id = await session.scalar(
-        select(DailyReport.id).where(
-            DailyReport.class_id == int(class_id),
-            DailyReport.report_date == local_today,
-        )
-    )
-    if existing_id is not None:
-        await state.clear()
-        await callback.answer("برای امروز گزارشی در این کلاس ثبت شده است.", show_alert=True)
-        if callback.message:
-            await callback.message.edit_text(
-                "⚠️ برای امروز در این کلاس گزارشی ثبت شده است. برای اصلاح آن با اپراتور کلاس هماهنگ کنید."
-            )
-        return
-
     try:
         record = await create_daily_report(
             session, int(class_id), local_today, report_text.strip(), user.id
         )
         await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        await state.clear()
-        await callback.answer("برای امروز گزارشی در این کلاس ثبت شده است.", show_alert=True)
-        if callback.message:
-            await callback.message.edit_text(
-                "⚠️ هم‌زمان گزارش دیگری برای امروز ثبت شد؛ گزارش تکراری ذخیره نشد."
-            )
-        return
     except (ValueError, PermissionError) as exc:
         await state.clear()
         await callback.answer(str(exc), show_alert=True)
