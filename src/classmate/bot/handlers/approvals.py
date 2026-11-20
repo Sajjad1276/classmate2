@@ -245,7 +245,7 @@ async def on_approve(callback: CallbackQuery, session: AsyncSession) -> None:
         return
     _, entity_type, id_s = callback.data.split(":", 2)
     record_id = int(id_s)
-    user = await _user(session, callback.from_user)
+    user = await _user(session, callback.from_user, private=True)
 
     # Find class from record — simplified: require group context or pending list
     # For MVP we resolve via pending scan is heavy; store class in callback later.
@@ -288,7 +288,7 @@ async def on_reject(callback: CallbackQuery, session: AsyncSession) -> None:
         return
     _, entity_type, id_s = callback.data.split(":", 2)
     record_id = int(id_s)
-    user = await _user(session, callback.from_user)
+    user = await _user(session, callback.from_user, private=True)
 
     from classmate.db.models import DailyReport, Exam, Homework
 
