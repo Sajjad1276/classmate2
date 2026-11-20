@@ -1,12 +1,8 @@
-"""add announcements for phase one
+"""Historical compatibility revision; the frozen 0001 baseline already includes announcements."""
 
-Revision ID: 0002
-Revises: 0001
-"""
 from typing import Sequence, Union
 
 from alembic import op
-from sqlalchemy import inspect
 
 revision: str = "0002"
 down_revision: Union[str, None] = "0001"
@@ -15,17 +11,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    if not inspect(bind).has_table("announcements"):
-        # Use the canonical model definition so columns, constraints and indexes
-        # cannot silently drift from the ORM schema.
-        from classmate.db.models import Announcement
-
-        Announcement.__table__.create(bind=bind, checkfirst=True)
+    # Kept as a no-op for databases that already ran the original bootstrap.
+    pass
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    inspector = inspect(bind)
-    if inspector.has_table("announcements"):
-        op.drop_table("announcements")
+    # Never drop application data during a migration rollback.
+    pass
