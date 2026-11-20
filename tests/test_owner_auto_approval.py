@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from classmate.core.enums import RecordStatus, Role
-from classmate.db.models import ApprovalEvent, AuditLog, ClassMembership, SchoolMembership, User
+from classmate.db.models import ApprovalEvent, AuditLog, SchoolMembership, User
 from classmate.services.records import (
     create_daily_report,
     create_exam,
@@ -22,6 +22,14 @@ async def test_class_manager_records_are_auto_approved_and_published(world):
     session = world["session"]
     manager = world["manager"]
     class_group = world["class"]
+    # Exercise the class-manager permission independently of school-admin access.
+    school_membership = await session.scalar(
+        select(SchoolMembership).where(
+            SchoolMembership.school_id == world["school"].id,
+            SchoolMembership.user_id == manager.id,
+        )
+    )
+    school_membership.is_active = False
 
     homework = await create_homework(
         session,
@@ -50,14 +58,18 @@ async def test_class_manager_records_are_auto_approved_and_published(world):
         manager.id,
     )
 
-    for record in (homework, exam, report):
+    for entity_type, record in (
+        ("homework", homework),
+        ("exam", exam),
+        ("report", report),
+    ):
         assert record.status == RecordStatus.APPROVED
         assert record.approved_by == manager.id
         assert record.approved_at is not None
 
         event = await session.scalar(
             select(ApprovalEvent).where(
-                ApprovalEvent.entity_type.in_(["homework", "exam", "report"]),
+                ApprovalEvent.entity_type == entity_type,
                 ApprovalEvent.entity_id == record.id,
                 ApprovalEvent.action == "AUTO_APPROVED",
             )
