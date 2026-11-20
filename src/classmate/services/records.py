@@ -26,7 +26,7 @@ from classmate.db.models import (
 )
 from classmate.domain.dates import persian_weekday
 from classmate.services.notifications import schedule_approved_record_reminders
-from classmate.services.permissions import can_approve, get_class_with_school
+from classmate.services.permissions import can_approve, get_class_with_school, is_class_manager
 
 
 def normalize_subject_name(value: str) -> str:
@@ -201,6 +201,66 @@ async def _require_active_creator(session: AsyncSession, user_id: int) -> None:
         raise PermissionError("حساب ثبت‌کننده فعال نیست.")
 
 
+
+
+async def _creation_approval_context(
+    session: AsyncSession, class_id: int, created_by: int
+) -> tuple[bool, int, str]:
+    """Return whether the creator owns class publishing rights and the school context."""
+    context = await get_class_with_school(session, class_id)
+    if context is None:
+        raise ValueError("کلاس یا مدرسه فعال نیست.")
+    creator = await session.get(User, created_by)
+    if creator is None or not creator.is_active:
+        raise PermissionError("حساب ثبت‌کننده فعال نیست.")
+    school = context[2]
+    return (
+        await is_class_manager(session, creator, class_id),
+        school.id,
+        school.timezone,
+    )
+
+
+async def _record_auto_approval(
+    session: AsyncSession,
+    *,
+    entity_type: str,
+    entity_id: int,
+    class_id: int,
+    school_id: int,
+    actor_id: int,
+    timezone_name: str,
+) -> None:
+    """Audit an authorized owner's direct publication and schedule its reminders."""
+    session.add(
+        ApprovalEvent(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            actor_id=actor_id,
+            action="AUTO_APPROVED",
+            note="Published automatically because the creator manages this class.",
+        )
+    )
+    await audit(
+        session,
+        school_id,
+        class_id,
+        actor_id,
+        "auto_approve",
+        entity_type,
+        entity_id,
+        after_data={"status": RecordStatus.APPROVED.value, "approval": "automatic"},
+    )
+    if entity_type in {EntityType.HOMEWORK.value, EntityType.EXAM.value}:
+        class_group = await session.get(ClassGroup, class_id)
+        record_model = Homework if entity_type == EntityType.HOMEWORK.value else Exam
+        record = await session.get(record_model, entity_id)
+        if class_group is not None and record is not None:
+            await schedule_approved_record_reminders(
+                session, class_group, record, entity_type, timezone_name
+            )
+
+
 async def create_homework(
     session: AsyncSession,
     class_id: int,
@@ -213,6 +273,10 @@ async def create_homework(
 ) -> Homework:
     await _validate_subject_for_class(session, class_id, subject)
     await _require_active_creator(session, created_by)
+    auto_approved, school_id, timezone_name = await _creation_approval_context(
+        session, class_id, created_by
+    )
+    approved_at = datetime.now(ZoneInfo(timezone_name)) if auto_approved else None
     if due_session_id is not None:
         lesson_id = await session.scalar(
             select(LessonSession.id).where(
@@ -232,10 +296,22 @@ async def create_homework(
         due_on=due_on,
         due_session_id=due_session_id,
         created_by=created_by,
-        status=RecordStatus.PENDING,
+        status=RecordStatus.APPROVED if auto_approved else RecordStatus.PENDING,
+        approved_by=created_by if auto_approved else None,
+        approved_at=approved_at,
     )
     session.add(record)
     await session.flush()
+    if auto_approved:
+        await _record_auto_approval(
+            session,
+            entity_type=EntityType.HOMEWORK.value,
+            entity_id=record.id,
+            class_id=class_id,
+            school_id=school_id,
+            actor_id=created_by,
+            timezone_name=timezone_name,
+        )
     return record
 
 
@@ -251,6 +327,10 @@ async def create_exam(
 ) -> Exam:
     await _validate_subject_for_class(session, class_id, subject)
     await _require_active_creator(session, created_by)
+    auto_approved, school_id, timezone_name = await _creation_approval_context(
+        session, class_id, created_by
+    )
+    approved_at = datetime.now(ZoneInfo(timezone_name)) if auto_approved else None
     if not title.strip():
         raise ValueError("عنوان امتحان نمی‌تواند خالی باشد.")
     if scheduled_at.tzinfo is None:
@@ -263,10 +343,22 @@ async def create_exam(
         exam_type=exam_type,
         scheduled_at=scheduled_at,
         created_by=created_by,
-        status=RecordStatus.PENDING,
+        status=RecordStatus.APPROVED if auto_approved else RecordStatus.PENDING,
+        approved_by=created_by if auto_approved else None,
+        approved_at=approved_at,
     )
     session.add(record)
     await session.flush()
+    if auto_approved:
+        await _record_auto_approval(
+            session,
+            entity_type=EntityType.EXAM.value,
+            entity_id=record.id,
+            class_id=class_id,
+            school_id=school_id,
+            actor_id=created_by,
+            timezone_name=timezone_name,
+        )
     return record
 
 
@@ -278,9 +370,11 @@ async def create_daily_report(
     created_by: int,
     title: str | None = None,
 ) -> DailyReport:
-    if await get_class_with_school(session, class_id) is None:
-        raise ValueError("کلاس یا مدرسه فعال نیست.")
     await _require_active_creator(session, created_by)
+    auto_approved, school_id, timezone_name = await _creation_approval_context(
+        session, class_id, created_by
+    )
+    approved_at = datetime.now(ZoneInfo(timezone_name)) if auto_approved else None
     if not body.strip():
         raise ValueError("متن گزارش نمی‌تواند خالی باشد.")
     record = DailyReport(
@@ -289,10 +383,22 @@ async def create_daily_report(
         title=(title or "گزارش روزانه")[:180],
         body=body.strip(),
         created_by=created_by,
-        status=RecordStatus.PENDING,
+        status=RecordStatus.APPROVED if auto_approved else RecordStatus.PENDING,
+        approved_by=created_by if auto_approved else None,
+        approved_at=approved_at,
     )
     session.add(record)
     await session.flush()
+    if auto_approved:
+        await _record_auto_approval(
+            session,
+            entity_type=EntityType.REPORT.value,
+            entity_id=record.id,
+            class_id=class_id,
+            school_id=school_id,
+            actor_id=created_by,
+            timezone_name=timezone_name,
+        )
     return record
 
 
