@@ -51,6 +51,7 @@ from classmate.services.permissions import (
     code_expiry,
     get_class_with_school,
     connect_group_by_code,
+    hash_code,
     is_class_manager,
     is_school_admin,
     make_code,
@@ -599,7 +600,7 @@ async def join_code(message: Message, state: FSMContext, session: AsyncSession) 
     if cls is None:
         await message.answer("کد واردشده معتبر نیست. لطفاً دوباره تلاش کنید یا عملیات را لغو کنید.")
         return
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     if cls.member_join_code_expires_at and cls.member_join_code_expires_at < datetime.now(timezone.utc):
         await message.answer("این این کد منقضی شده است. لطفاً کد جدیدی دریافت کنید.")
