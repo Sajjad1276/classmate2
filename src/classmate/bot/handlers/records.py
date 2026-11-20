@@ -151,6 +151,13 @@ async def new_exam(message: Message, session: AsyncSession) -> None:
         )
         return
 
+    if not 1 <= period <= 20:
+        await message.answer("شماره زنگ باید بین ۱ تا ۲۰ باشد.")
+        return
+    if ends <= starts:
+        await message.answer("ساعت پایان باید بعد از ساعت شروع باشد.")
+        return
+
     ctx, user = await _ctx(message, session)
     if ctx is None:
         await message.answer("لطفاً این عملیات را در گروه کلاس انجام دهید.")
