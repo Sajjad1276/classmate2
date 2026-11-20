@@ -33,7 +33,7 @@ from classmate.bot.states import (
     SubjectForm,
     TimetableForm,
 )
-from classmate.core.enums import Role
+from classmate.core.enums import RecordStatus, Role
 from classmate.db.models import (
     AcademicYear,
     ClassGroup,
@@ -412,8 +412,9 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
     )
     ctx = await get_class_with_school(session, data["class_id"])
     class_group = ctx[0] if ctx else None
+    pending = record.status == RecordStatus.PENDING
     body = (
-        f"🕓 <b>تکلیف جدید برای بررسی</b>\n"
+        f"{'🕓 <b>تکلیف جدید برای بررسی</b>' if pending else '✅ <b>تکلیف جدید ثبت و منتشر شد</b>'}\n"
         f"درس: {escape(subject.name)}\n"
         f"عنوان: {escape(record.title)}\n"
         f"ثبت‌کننده: {escape(user.full_name)}"
@@ -425,18 +426,18 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
             target_chat_id=class_group.group_chat_id,
             class_id=class_group.id,
             text=body,
-            action_type="homework",
-            action_id=record.id,
             entity_type="homework",
             entity_id=record.id,
-            expected_record_status="PENDING",
+            expected_record_status=record.status.value,
+            action_type="homework" if pending else None,
+            action_id=record.id if pending else None,
             idempotency_key=f"approval:homework:{record.id}",
         )
     await session.commit()
 
     await state.clear()
     await message.answer(
-        f"✅ تکلیف ثبت شد و در انتظار بررسی و تأیید است.",
+        "✅ تکلیف ثبت و منتشر شد." if not pending else "✅ تکلیف ثبت شد و در انتظار بررسی و تأیید است.",
         reply_markup=await menu_for(session, user),
     )
 
@@ -511,8 +512,9 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
         scheduled,
         user.id,
     )
+    pending = record.status == RecordStatus.PENDING
     body = (
-        f"🕓 <b>امتحان جدید برای بررسی</b>\n"
+        f"{'🕓 <b>امتحان جدید برای بررسی</b>' if pending else '✅ <b>امتحان جدید ثبت و منتشر شد</b>'}\n"
         f"درس: {escape(subject.name)}\n"
         f"عنوان: {escape(record.title)}\n"
         f"ثبت‌کننده: {escape(user.full_name)}"
@@ -524,16 +526,19 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
             target_chat_id=class_group.group_chat_id,
             class_id=class_group.id,
             text=body,
-            action_type="exam",
-            action_id=record.id,
             entity_type="exam",
             entity_id=record.id,
-            expected_record_status="PENDING",
+            expected_record_status=record.status.value,
+            action_type="exam" if pending else None,
+            action_id=record.id if pending else None,
             idempotency_key=f"approval:exam:{record.id}",
         )
     await session.commit()
     await state.clear()
-    await message.answer("✅ امتحان ثبت شد و در انتظار بررسی و تأیید است.", reply_markup=await menu_for(session, user))
+    await message.answer(
+        "✅ امتحان ثبت و منتشر شد." if not pending else "✅ امتحان ثبت شد و در انتظار بررسی و تأیید است.",
+        reply_markup=await menu_for(session, user),
+    )
 
 
 # ── Report wizard ───────────────────────────────────────────────────
@@ -559,8 +564,9 @@ async def report_body(message: Message, state: FSMContext, session: AsyncSession
     record = await create_daily_report(
         session, data["class_id"], local_today, message.text.strip(), user.id
     )
+    pending = record.status == RecordStatus.PENDING
     body = (
-        f"🕓 <b>گزارش روزانه برای بررسی</b>\n"
+        f"{'🕓 <b>گزارش روزانه جدید برای بررسی</b>' if pending else '✅ <b>گزارش روزانه جدید ثبت و منتشر شد</b>'}\n"
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
     if class_group and class_group.group_chat_id:
@@ -570,16 +576,19 @@ async def report_body(message: Message, state: FSMContext, session: AsyncSession
             target_chat_id=class_group.group_chat_id,
             class_id=class_group.id,
             text=body,
-            action_type="report",
-            action_id=record.id,
             entity_type="report",
             entity_id=record.id,
-            expected_record_status="PENDING",
+            expected_record_status=record.status.value,
+            action_type="report" if pending else None,
+            action_id=record.id if pending else None,
             idempotency_key=f"approval:report:{record.id}",
         )
     await session.commit()
     await state.clear()
-    await message.answer("✅ گزارش ثبت شد و در انتظار بررسی و تأیید است.", reply_markup=await menu_for(session, user))
+    await message.answer(
+        "✅ گزارش روزانه ثبت و منتشر شد." if not pending else "✅ گزارش روزانه ثبت شد و در انتظار بررسی و تأیید است.",
+        reply_markup=await menu_for(session, user),
+    )
 
 
 # ── Join ────────────────────────────────────────────────────────────
