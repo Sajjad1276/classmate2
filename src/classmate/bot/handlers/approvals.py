@@ -16,6 +16,18 @@ from classmate.services.users import ensure_user
 router = Router(name="approvals")
 
 
+def _escape_limited(value: str, limit: int = 1800) -> str:
+    parts: list[str] = []
+    used = 0
+    for character in value:
+        escaped = escape(character)
+        if used + len(escaped) > limit:
+            return "".join(parts) + "…"
+        parts.append(escaped)
+        used += len(escaped)
+    return "".join(parts)
+
+
 async def _user(session, tg_user, private=False):
     settings = get_settings()
     user = await ensure_user(
@@ -81,7 +93,7 @@ async def open_review_item(callback: CallbackQuery, session: AsyncSession) -> No
             [
                 f"درس: {escape(subject.name if subject is not None else '—')}",
                 f"عنوان: <b>{escape(record.title)}</b>",
-                f"توضیحات: {escape(record.description[:2200])}",
+                f"توضیحات: {_escape_limited(record.description, 1800)}",
                 f"موعد: {jalali_date(record.due_on) if record.due_on else 'بدون موعد'}",
             ]
         )
@@ -91,7 +103,7 @@ async def open_review_item(callback: CallbackQuery, session: AsyncSession) -> No
             [
                 f"درس: {escape(subject.name if subject is not None else '—')}",
                 f"عنوان: <b>{escape(record.title)}</b>",
-                f"محدوده: {escape(record.scope[:1800] or '—')}",
+                f"محدوده: {_escape_limited(record.scope or '—', 1500)}",
                 f"زمان برگزاری: {jalali_datetime(record.scheduled_at, school.timezone)}",
             ]
         )
@@ -101,7 +113,7 @@ async def open_review_item(callback: CallbackQuery, session: AsyncSession) -> No
                 f"تاریخ گزارش: {jalali_date(record.report_date)}",
                 f"عنوان: <b>{escape((record.title or 'گزارش روزانه')[:180])}</b>",
                 "",
-                escape(record.body[:2400]),
+                _escape_limited(record.body, 1800),
             ]
         )
 
