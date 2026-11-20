@@ -426,12 +426,6 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
         user.id,
     )
     pending = record.status == RecordStatus.PENDING
-    body = (
-        f"{'🕓 <b>تکلیف جدید برای بررسی</b>' if pending else '✅ <b>تکلیف جدید ثبت و منتشر شد</b>'}\n"
-        f"درس: {escape(subject.name)}\n"
-        f"عنوان: {escape(record.title)}\n"
-        f"ثبت‌کننده: {escape(user.full_name)}"
-    )
     await session.commit()
 
     await state.clear()
@@ -512,12 +506,6 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
         user.id,
     )
     pending = record.status == RecordStatus.PENDING
-    body = (
-        f"{'🕓 <b>امتحان جدید برای بررسی</b>' if pending else '✅ <b>امتحان جدید ثبت و منتشر شد</b>'}\n"
-        f"درس: {escape(subject.name)}\n"
-        f"عنوان: {escape(record.title)}\n"
-        f"ثبت‌کننده: {escape(user.full_name)}"
-    )
     await session.commit()
     await state.clear()
     await message.answer(
