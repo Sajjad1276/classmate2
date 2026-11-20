@@ -1,27 +1,39 @@
 """Fresh database and repeatability smoke test for Alembic."""
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
 
-def test_alembic_head_installs_and_reinstalls_on_empty_sqlite(tmp_path, monkeypatch):
+def _run_alembic(root: Path, database_url: str, *args: str, env: dict[str, str]) -> None:
+    command = [sys.executable, "-m", "alembic", *args]
+    subprocess.run(
+        command,
+        cwd=root,
+        env={**env, "DATABASE_URL": database_url},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_alembic_head_installs_without_bot_token_and_is_repeatable(tmp_path, monkeypatch):
     database_path = tmp_path / "fresh.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{database_path}")
-    monkeypatch.delenv("BOT_TOKEN", raising=False)
-
+    database_url = f"sqlite+aiosqlite:///{database_path}"
     root = Path(__file__).resolve().parents[1]
-    config = Config(str(root / "alembic.ini"))
-    config.set_main_option("script_location", str(root / "alembic"))
 
-    command.upgrade(config, "head")
-    # A second upgrade must be idempotent.
-    command.upgrade(config, "head")
-    # Exercise the complete downgrade/upgrade chain as well.
-    command.downgrade(config, "base")
-    command.upgrade(config, "head")
+    env = os.environ.copy()
+    env.pop("BOT_TOKEN", None)
+    env.pop("PYTHONPATH", None)
+    env["PYTHONPATH"] = str(root / "src")
+
+    _run_alembic(root, database_url, "upgrade", "head", env=env)
+    _run_alembic(root, database_url, "upgrade", "head", env=env)
+    _run_alembic(root, database_url, "downgrade", "base", env=env)
+    _run_alembic(root, database_url, "upgrade", "head", env=env)
 
     engine = create_engine(f"sqlite:///{database_path}")
     try:
