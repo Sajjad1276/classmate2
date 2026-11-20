@@ -35,6 +35,7 @@ WEEKDAYS = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چه
 
 def dashboard_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎓 بخش آموزشی", callback_data="menu:education", style="primary")],
         [InlineKeyboardButton(text="📅 تقویم ۷ روز آینده", callback_data="p1:calendar")],
         [InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="p1:announcements")],
         [InlineKeyboardButton(text="🔔 تنظیم اعلان‌ها", callback_data="p1:preferences")],
@@ -83,9 +84,15 @@ async def _render_dashboard(message: Message, session: AsyncSession, user) -> No
         "🏠 <b>داشبورد من</b>",
         f"{jalali_date(date.today())}  ·  {len(classes)} کلاس فعال",
         "",
-        f"📚 {len(data['homework'])} تکلیف  ·  📝 {len(data['exams'])} امتحان  ·  📣 {len(data['announcements'])} اطلاعیه",
+        f"🏫 {len(data['today_lessons'])} کلاس امروز  ·  📚 {len(data['homework'])} تکلیف  ·  📝 {len(data['exams'])} امتحان",
+        f"📣 {len(data['announcements'])} اطلاعیه فعال",
         "فعالیت‌های مهم هفت روز آینده:",
     ]
+    if data["today_lessons"]:
+        lines.append("\n🏫 <b>برنامه امروز</b>")
+        for entry, subject, cls in data["today_lessons"][:6]:
+            time = entry.starts_at.strftime("%H:%M") if entry.starts_at else "زمان نامشخص"
+            lines.append(f"• {time} — {escape(subject.name)} | {escape(cls.name)}")
     if data["homework"]:
         lines.append(f"\n📚 <b>تکالیف نزدیک</b> ({len(data['homework'])})")
         for hw, subject, cls in data["homework"][:5]:

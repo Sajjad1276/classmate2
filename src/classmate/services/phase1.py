@@ -20,12 +20,24 @@ from classmate.db.models import (
     User,
 )
 from classmate.services.permissions import is_class_manager
+from classmate.domain.dates import persian_weekday
 
 
 async def dashboard_data(session: AsyncSession, class_ids: list[int], today: date) -> dict:
     if not class_ids:
         return {"homework": [], "exams": [], "today_lessons": [], "announcements": []}
     horizon = today + timedelta(days=7)
+    today_lessons = list((await session.execute(
+        select(TimetableEntry, Subject, ClassGroup)
+        .join(Subject, TimetableEntry.subject_id == Subject.id)
+        .join(ClassGroup, TimetableEntry.class_id == ClassGroup.id)
+        .where(
+            TimetableEntry.class_id.in_(class_ids),
+            TimetableEntry.weekday == persian_weekday(today),
+        )
+        .order_by(TimetableEntry.period)
+        .limit(20)
+    )).all())
     homework = list((await session.execute(
         select(Homework, Subject, ClassGroup)
         .join(Subject, Homework.subject_id == Subject.id)
@@ -48,10 +60,19 @@ async def dashboard_data(session: AsyncSession, class_ids: list[int], today: dat
     announcements = list((await session.execute(
         select(Announcement, ClassGroup)
         .join(ClassGroup, Announcement.class_id == ClassGroup.id)
-        .where(Announcement.class_id.in_(class_ids), Announcement.is_active.is_(True))
+        .where(
+            Announcement.class_id.in_(class_ids),
+            Announcement.is_active.is_(True),
+            or_(Announcement.expires_at.is_(None), Announcement.expires_at > datetime.now(timezone.utc)),
+        )
         .order_by(Announcement.published_at.desc()).limit(5)
     )).all())
-    return {"homework": homework, "exams": exams, "announcements": announcements}
+    return {
+        "homework": homework,
+        "exams": exams,
+        "today_lessons": today_lessons,
+        "announcements": announcements,
+    }
 
 
 async def calendar_rows(session: AsyncSession, class_id: int, start: date, days: int = 7):
