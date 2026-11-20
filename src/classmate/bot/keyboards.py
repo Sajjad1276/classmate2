@@ -10,17 +10,17 @@ def main_menu(
     is_admin: bool = False,
 ) -> ReplyKeyboardMarkup:
     rows: list[list[KeyboardButton]] = [
-        [KeyboardButton(text="🏫 کلاس‌های من"), KeyboardButton(text="➕ ثبت جدید")],
-        [KeyboardButton(text="📚 تکالیف"), KeyboardButton(text="📝 امتحانات")],
-        [KeyboardButton(text="📅 برنامه هفتگی"), KeyboardButton(text="📋 گزارش امروز")],
+        [KeyboardButton(text="🏫 کلاس‌های من"), KeyboardButton(text="➕ ثبت اطلاعات")],
+        [KeyboardButton(text="📚 تکالیف من"), KeyboardButton(text="📝 تقویم امتحانات")],
+        [KeyboardButton(text="📅 برنامه هفتگی"), KeyboardButton(text="📋 گزارش‌های امروز")],
     ]
     if is_approver:
-        rows.append([KeyboardButton(text="🕓 در انتظار تأیید")])
+        rows.append([KeyboardButton(text="🕓 موارد در انتظار بررسی")])
     if is_manager:
         rows.append([KeyboardButton(text="⚙️ مدیریت کلاس")])
     if is_admin:
         rows.append([KeyboardButton(text="🏛 مدیریت سامانه")])
-    rows.append([KeyboardButton(text="🔑 عضویت با کد"), KeyboardButton(text="❓ راهنما")])
+    rows.append([KeyboardButton(text="🔑 ورود با کد دعوت"), KeyboardButton(text="❓ راهنمای استفاده")])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
 
 
@@ -35,7 +35,7 @@ def cancel_kb(*, selective: bool = False) -> ReplyKeyboardMarkup:
 def skip_or_cancel_kb(*, selective: bool = False) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="⏭ بدون موعد")],
+            [KeyboardButton(text="⏭ بدون تعیین موعد")],
             [KeyboardButton(text="❌ انصراف")],
         ],
         resize_keyboard=True,
@@ -47,11 +47,11 @@ def new_record_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="📚 تکلیف", callback_data="wiz:hw"),
-                InlineKeyboardButton(text="📝 امتحان", callback_data="wiz:exam"),
+                InlineKeyboardButton(text="📚 ثبت تکلیف", callback_data="wiz:hw"),
+                InlineKeyboardButton(text="📝 ثبت امتحان", callback_data="wiz:exam"),
             ],
-            [InlineKeyboardButton(text="📋 گزارش روزانه", callback_data="wiz:report")],
-            [InlineKeyboardButton(text="« بازگشت", callback_data="ui:home")],
+            [InlineKeyboardButton(text="📋 ثبت گزارش روزانه", callback_data="wiz:report")],
+            [InlineKeyboardButton(text="« بازگشت به منو", callback_data="ui:home")],
         ]
     )
 
@@ -59,10 +59,10 @@ def new_record_menu() -> InlineKeyboardMarkup:
 def manage_class_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🔗 کد اتصال و عضویت", callback_data="mgr:codes")],
-            [InlineKeyboardButton(text="📖 افزودن درس", callback_data="mgr:subject")],
+            [InlineKeyboardButton(text="🔗 کدهای اتصال و عضویت", callback_data="mgr:codes")],
+            [InlineKeyboardButton(text="📖 مدیریت درس‌ها", callback_data="mgr:subject")],
             [InlineKeyboardButton(text="🗓 تنظیم برنامه هفتگی", callback_data="mgr:timetable")],
-            [InlineKeyboardButton(text="« بازگشت", callback_data="ui:home")],
+            [InlineKeyboardButton(text="« بازگشت به منو", callback_data="ui:home")],
         ]
     )
 
@@ -70,9 +70,9 @@ def manage_class_menu() -> InlineKeyboardMarkup:
 def admin_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🏛 ساخت مدرسه", callback_data="adm:school")],
-            [InlineKeyboardButton(text="🎓 ساخت کلاس", callback_data="adm:class")],
-            [InlineKeyboardButton(text="« بازگشت", callback_data="ui:home")],
+            [InlineKeyboardButton(text="🏛 ایجاد مدرسه", callback_data="adm:school")],
+            [InlineKeyboardButton(text="🎓 ایجاد کلاس", callback_data="adm:class")],
+            [InlineKeyboardButton(text="« بازگشت به منو", callback_data="ui:home")],
         ]
     )
 
@@ -82,21 +82,21 @@ def group_panel(*, class_id: int, class_name: str = "") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="📚 تکالیف", callback_data=f"g:view:homework:{cid}"),
-                InlineKeyboardButton(text="📝 امتحانات", callback_data=f"g:view:exams:{cid}"),
+                InlineKeyboardButton(text="📚 تکالیف من", callback_data=f"g:view:homework:{cid}"),
+                InlineKeyboardButton(text="📝 تقویم امتحانات", callback_data=f"g:view:exams:{cid}"),
             ],
             [
-                InlineKeyboardButton(text="📋 امروز", callback_data=f"g:view:today:{cid}"),
-                InlineKeyboardButton(text="📅 برنامه", callback_data=f"g:view:week:{cid}"),
+                InlineKeyboardButton(text="📋 گزارش‌های امروز", callback_data=f"g:view:today:{cid}"),
+                InlineKeyboardButton(text="📅 برنامه هفتگی", callback_data=f"g:view:week:{cid}"),
             ],
             [
-                InlineKeyboardButton(text="➕ تکلیف", callback_data=f"g:new:hw:{cid}"),
-                InlineKeyboardButton(text="➕ امتحان", callback_data=f"g:new:exam:{cid}"),
-                InlineKeyboardButton(text="➕ گزارش", callback_data=f"g:new:report:{cid}"),
+                InlineKeyboardButton(text="➕ تکلیف جدید", callback_data=f"g:new:hw:{cid}"),
+                InlineKeyboardButton(text="➕ امتحان جدید", callback_data=f"g:new:exam:{cid}"),
+                InlineKeyboardButton(text="➕ گزارش جدید", callback_data=f"g:new:report:{cid}"),
             ],
             [
-                InlineKeyboardButton(text="🕓 در انتظار", callback_data=f"g:view:pending:{cid}"),
-                InlineKeyboardButton(text="🔄 بروزرسانی پنل", callback_data=f"g:panel:{cid}"),
+                InlineKeyboardButton(text="🕓 در انتظار بررسی", callback_data=f"g:view:pending:{cid}"),
+                InlineKeyboardButton(text="🔄 به‌روزرسانی پنل", callback_data=f"g:panel:{cid}"),
             ],
         ]
     )
@@ -121,12 +121,12 @@ def class_picker(
         )
     nav: list[InlineKeyboardButton] = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="‹ قبلی", callback_data=f"pickpage:{action}:{page - 1}"))
+        nav.append(InlineKeyboardButton(text="‹ صفحه قبل", callback_data=f"pickpage:{action}:{page - 1}"))
     if start + page_size < len(classes):
-        nav.append(InlineKeyboardButton(text="بعدی ›", callback_data=f"pickpage:{action}:{page + 1}"))
+        nav.append(InlineKeyboardButton(text="صفحه بعد ›", callback_data=f"pickpage:{action}:{page + 1}"))
     if nav:
         rows.append(nav)
-    rows.append([InlineKeyboardButton(text="« انصراف", callback_data="ui:home")])
+    rows.append([InlineKeyboardButton(text="« لغو عملیات", callback_data="ui:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -167,8 +167,8 @@ def approval_keyboard(entity_type: str, record_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="✅ تأیید", callback_data=f"approve:{entity_type}:{record_id}"),
-                InlineKeyboardButton(text="❌ رد", callback_data=f"reject:{entity_type}:{record_id}"),
+                InlineKeyboardButton(text="✅ تأیید نهایی", callback_data=f"approve:{entity_type}:{record_id}"),
+                InlineKeyboardButton(text="❌ رد درخواست", callback_data=f"reject:{entity_type}:{record_id}"),
             ]
         ]
     )

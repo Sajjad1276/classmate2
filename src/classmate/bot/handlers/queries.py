@@ -51,12 +51,12 @@ async def cmd_homework(message: Message, session: AsyncSession) -> None:
     arg = message.text.split(maxsplit=1)[1] if message.text and " " in message.text else None
     ctx, _ = await _resolve_class(message, session, arg)
     if ctx is None:
-        await message.answer("کلاس پیدا نشد. در گروه بزن یا /homework شناسه_کلاس")
+        await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید. در گروه ارسال کنید یا از /homework شناسه_کلاس استفاده کنید")
         return
     class_group, _, _ = ctx
     rows = await list_homework(session, class_group.id)
     if not rows:
-        await message.answer("هنوز تکلیف تأییدشده‌ای ثبت نشده.")
+        await message.answer("هنوز تکلیف تأییدشده‌ای برای این کلاس ثبت نشده است.")
         return
     lines = ["📚 <b>تکالیف تأییدشده</b>"]
     for hw, subj in rows:
@@ -73,14 +73,14 @@ async def cmd_exams(message: Message, session: AsyncSession) -> None:
     arg = message.text.split(maxsplit=1)[1] if message.text and " " in message.text else None
     ctx, _ = await _resolve_class(message, session, arg)
     if ctx is None:
-        await message.answer("کلاس پیدا نشد.")
+        await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
         return
     class_group, _, school = ctx
     rows = await list_exams(session, class_group.id)
     if not rows:
-        await message.answer("امتحان آینده‌ای ثبت نشده.")
+        await message.answer("امتحان پیش‌رویی برای این کلاس ثبت نشده است.")
         return
-    lines = ["📝 <b>امتحانات تأییدشده</b>"]
+    lines = ["📝 <b>امتحانات پیش‌رو</b>"]
     for exam, subj in rows:
         lines.append(
             f"\n• <b>{escape(subj.name)}</b> — {escape(exam.title)}\n"
@@ -95,7 +95,7 @@ async def cmd_today(message: Message, session: AsyncSession) -> None:
     arg = message.text.split(maxsplit=1)[1] if message.text and " " in message.text else None
     ctx, _ = await _resolve_class(message, session, arg)
     if ctx is None:
-        await message.answer("کلاس پیدا نشد.")
+        await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
         return
     class_group, _, school = ctx
     today = date.today()
@@ -103,7 +103,7 @@ async def cmd_today(message: Message, session: AsyncSession) -> None:
     if not reports:
         await message.answer(f"گزارش تأییدشده‌ای برای امروز ({jalali_date(today)}) نیست.")
         return
-    lines = [f"📋 <b>گزارش امروز</b> ({jalali_date(today)})"]
+    lines = [f"📋 <b>گزارش‌های امروز</b> ({jalali_date(today)})"]
     for r in reports:
         lines.append(f"\n• {escape(r.title or 'گزارش')}\n{escape(r.body)}")
     await message.answer("\n".join(lines))
@@ -114,7 +114,7 @@ async def cmd_week(message: Message, session: AsyncSession) -> None:
     arg = message.text.split(maxsplit=1)[1] if message.text and " " in message.text else None
     ctx, _ = await _resolve_class(message, session, arg)
     if ctx is None:
-        await message.answer("کلاس پیدا نشد.")
+        await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
         return
     class_group, _, _ = ctx
     entries = (
@@ -126,7 +126,7 @@ async def cmd_week(message: Message, session: AsyncSession) -> None:
         )
     ).all()
     if not entries:
-        await message.answer("برنامه هفتگی هنوز تنظیم نشده. مدیر کلاس با /timetable_set اضافه کند.")
+        await message.answer("برنامه هفتگی هنوز تنظیم نشده است. مدیر کلاس می‌تواند آن را از بخش «مدیریت کلاس» تنظیم کند.")
         return
     lines = ["📅 <b>برنامه هفتگی</b>"]
     current_day = -1

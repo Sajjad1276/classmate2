@@ -271,7 +271,7 @@ async def approve_record(
 
     record = await session.get(model, entity_id, with_for_update=True)
     if record is None or record.class_id != class_id:
-        return False, "اطلاعات پیدا نشد."
+        return False, "اطلاعات موردنظر پیدا نشد."
     if record.status != RecordStatus.PENDING:
         return False, f"این مورد در وضعیت {record.status} است و قابل تأیید نیست."
     if record.created_by == actor_id:
@@ -329,7 +329,7 @@ async def reject_record(
 
     record = await session.get(model, entity_id, with_for_update=True)
     if record is None or record.class_id != class_id:
-        return False, "اطلاعات پیدا نشد."
+        return False, "اطلاعات موردنظر پیدا نشد."
     if record.status not in {RecordStatus.PENDING, RecordStatus.REVISION_REQUESTED}:
         return False, "این مورد در وضعیت قابل رد نیست."
 

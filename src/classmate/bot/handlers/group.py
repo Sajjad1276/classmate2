@@ -28,8 +28,8 @@ PANEL_TRIGGERS = {
 def panel_text(class_name: str) -> str:
     return (
         f"📌 <b>پنل کلاس {escape(class_name)}</b>\n\n"
-        "مشاهده یا ثبت را از دکمه‌ها انتخاب کن.\n"
-        "برای باز کردن دوباره: <b>منو</b> یا منشن ربات + منو"
+        "برای مشاهده اطلاعات یا ثبت مورد جدید، گزینه مناسب را انتخاب کنید.\n"
+        "برای نمایش دوباره این پنل، «منو» را ارسال کنید یا ربات را همراه با عبارت «منو» منشن کنید."
     )
 
 
@@ -51,7 +51,7 @@ async def group_start(message: Message, session: AsyncSession) -> None:
     if not ok:
         await message.answer(
             "این گروه هنوز به کلاسی وصل نیست.\n"
-            "کد اتصال را همین‌جا به صورت یک پیام معمولی بفرست."
+            "کد اتصال را همین‌جا به‌صورت یک پیام معمولی ارسال کنید."
         )
 
 
@@ -69,7 +69,7 @@ async def group_menu_text(message: Message, session: AsyncSession) -> None:
     # Works when Privacy Mode is off, bot is admin, or message is a reply/mention path Telegram delivers
     ok = await send_group_panel(message, session)
     if not ok:
-        await message.answer("گروه به کلاسی متصل نیست. اول کد اتصال را بفرست.")
+        await message.answer("این گروه به کلاسی متصل نیست. ابتدا کد اتصال را ارسال کنید.")
 
 
 @router.callback_query(F.data.startswith("g:panel:"))
@@ -79,7 +79,7 @@ async def cb_refresh_panel(callback: CallbackQuery, session: AsyncSession) -> No
 
     ctx = await get_class_with_school(session, class_id)
     if ctx is None:
-        await callback.answer("کلاس پیدا نشد", show_alert=True)
+        await callback.answer("کلاس موردنظر پیدا نشد", show_alert=True)
         return
     class_group = ctx[0]
     text = panel_text(class_group.name)
@@ -93,7 +93,7 @@ async def cb_refresh_panel(callback: CallbackQuery, session: AsyncSession) -> No
             text,
             reply_markup=group_panel(class_id=class_id, class_name=class_group.name),
         )
-    await callback.answer("بروز شد")
+    await callback.answer("پنل با موفقیت به‌روزرسانی شد")
 
 
 @router.callback_query(F.data.startswith("g:view:"))
@@ -128,4 +128,4 @@ async def cb_group_new(callback: CallbackQuery, state: FSMContext, session: Asyn
     elif kind == "report":
         await start_report_after_class(callback.message, state, session, class_id)
     else:
-        await callback.message.answer("نوع نامعتبر.")
+        await callback.message.answer("نوع اطلاعات معتبر نیست.")

@@ -39,7 +39,7 @@ async def _user(session: AsyncSession, tg_user, private: bool = False) -> User:
 @router.message(Command("school_new"))
 async def school_new(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
-        await message.answer("این فرمان را در گفت‌وگوی خصوصی ربات اجرا کن.")
+        await message.answer("لطفاً این فرمان را در گفت‌وگوی خصوصی ربات اجرا کنید.")
         return
     try:
         raw = message.text.split(maxsplit=1)[1]
@@ -76,7 +76,7 @@ async def school_new(message: Message, session: AsyncSession) -> None:
 @router.message(Command("class_new"))
 async def class_new(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
-        await message.answer("این فرمان را در گفت‌وگوی خصوصی اجرا کن.")
+        await message.answer("لطفاً این فرمان را در گفت‌وگوی خصوصی ربات اجرا کنید.")
         return
     try:
         raw = message.text.split(maxsplit=1)[1]
@@ -88,7 +88,7 @@ async def class_new(message: Message, session: AsyncSession) -> None:
 
     user = await _user(session, message.from_user, private=True)
     if not await is_school_admin(session, user, school_id):
-        await message.answer("دسترسی مدیر مدرسه برای این مدرسه را نداری.")
+        await message.answer("شما دسترسی مدیریت این مدرسه را ندارید.")
         return
 
     year = await session.scalar(
@@ -97,7 +97,7 @@ async def class_new(message: Message, session: AsyncSession) -> None:
         )
     )
     if year is None:
-        await message.answer("سال تحصیلی فعالی برای این مدرسه پیدا نشد.")
+        await message.answer("سال تحصیلی فعالی برای این مدرسه موردنظر پیدا نشد.")
         return
 
     cls = ClassGroup(
@@ -119,7 +119,7 @@ async def class_new(message: Message, session: AsyncSession) -> None:
 @router.message(Command("class_code"))
 async def class_code(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
-        await message.answer("در خصوصی اجرا کن.")
+        await message.answer("لطفاً این عملیات را در گفت‌وگوی خصوصی ربات انجام دهید.")
         return
     try:
         class_id = int(message.text.split(maxsplit=1)[1].strip())
@@ -131,12 +131,12 @@ async def class_code(message: Message, session: AsyncSession) -> None:
     from classmate.services.permissions import is_class_manager
 
     if not await is_class_manager(session, user, class_id):
-        await message.answer("فقط مدیر کلاس می‌تواند کد تولید کند.")
+        await message.answer("تولید کد فقط برای مدیر کلاس مجاز است.")
         return
 
     cls = await session.get(ClassGroup, class_id)
     if cls is None:
-        await message.answer("کلاس پیدا نشد.")
+        await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
         return
 
     group_code = make_code(8)
@@ -147,9 +147,9 @@ async def class_code(message: Message, session: AsyncSession) -> None:
     cls.member_join_code_expires_at = code_expiry(60 * 24 * 7)
 
     await message.answer(
-        f"کدهای کلاس <b>{escape(cls.name)}</b>:\n\n"
-        f"اتصال گروه (۳۰ دقیقه): <code>{group_code}</code>\n"
-        f"عضویت دانش‌آموز (۷ روز): <code>{join_code}</code>\n\n"
+        f"کدهای دسترسی کلاس <b>{escape(cls.name)}</b>:\n\n"
+        f"کد اتصال گروه (اعتبار: ۳۰ دقیقه): <code>{group_code}</code>\n"
+        f"کد دعوت دانش‌آموز (اعتبار: ۷ روز): <code>{join_code}</code>\n\n"
         f"در گروه: /connect {group_code}\n"
         f"در خصوصی: /join {join_code}"
     )
@@ -158,7 +158,7 @@ async def class_code(message: Message, session: AsyncSession) -> None:
 @router.message(Command("connect"))
 async def connect_group(message: Message, session: AsyncSession) -> None:
     if message.chat.type not in {"group", "supergroup"}:
-        await message.answer("این فرمان را داخل گروه کلاس اجرا کن.")
+        await message.answer("لطفاً این فرمان را داخل گروه کلاس اجرا کنید.")
         return
     try:
         code = message.text.split(maxsplit=1)[1].strip().upper()
@@ -175,12 +175,12 @@ async def connect_group(message: Message, session: AsyncSession) -> None:
         )
     )
     if cls is None:
-        await message.answer("کد نامعتبر است.")
+        await message.answer("کد واردشده معتبر نیست.")
         return
     if cls.group_link_code_expires_at and cls.group_link_code_expires_at < __import__("datetime").datetime.now(
         __import__("datetime").timezone.utc
     ):
-        await message.answer("کد منقضی شده است.")
+        await message.answer("این کد منقضی شده است.")
         return
 
     cls.group_chat_id = message.chat.id
@@ -193,7 +193,7 @@ async def connect_group(message: Message, session: AsyncSession) -> None:
 @router.message(Command("join"))
 async def join_class(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
-        await message.answer("برای عضویت، /join را در خصوصی ربات اجرا کن.")
+        await message.answer("برای عضویت، فرمان /join را در گفت‌وگوی خصوصی ربات اجرا کنید.")
         return
     try:
         code = message.text.split(maxsplit=1)[1].strip().upper()
@@ -210,12 +210,12 @@ async def join_class(message: Message, session: AsyncSession) -> None:
         )
     )
     if cls is None:
-        await message.answer("کد عضویت نامعتبر است.")
+        await message.answer("کد عضویت واردشده معتبر نیست.")
         return
     if cls.member_join_code_expires_at and cls.member_join_code_expires_at < __import__("datetime").datetime.now(
         __import__("datetime").timezone.utc
     ):
-        await message.answer("کد منقضی شده است.")
+        await message.answer("این کد منقضی شده است.")
         return
 
     existing = await session.scalar(
@@ -228,13 +228,13 @@ async def join_class(message: Message, session: AsyncSession) -> None:
     else:
         session.add(ClassMembership(class_id=cls.id, user_id=user.id, role=Role.STUDENT))
 
-    await message.answer(f"به کلاس <b>{escape(cls.name)}</b> پیوستی.")
+    await message.answer(f"با موفقیت به کلاس <b>{escape(cls.name)}</b> ملحق شدید.")
 
 
 @router.message(Command("classes"))
 async def list_classes(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
-        await message.answer("در خصوصی اجرا کن: /classes")
+        await message.answer("این فرمان را در گفت‌وگوی خصوصی ربات اجرا کنید: /classes")
         return
     user = await _user(session, message.from_user, private=True)
 
@@ -269,10 +269,10 @@ async def list_classes(message: Message, session: AsyncSession) -> None:
     )
     classes = list((await session.execute(query)).scalars().all())
     if not classes:
-        await message.answer("هنوز به کلاسی متصل نیستی. با /join کد_عضویت عضو شو.")
+        await message.answer("هنوز عضو کلاسی نیستید. با فرمان /join کد_عضویت به کلاس ملحق شوید.")
         return
 
-    lines = ["🏫 <b>کلاس‌های تو</b>"]
+    lines = ["🏫 <b>کلاس‌های شما</b>"]
     for c in classes:
         ctx = await get_class_with_school(session, c.id)
         school_name = ctx[2].name if ctx else "؟"

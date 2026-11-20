@@ -31,12 +31,12 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession) 
 
     name = escape(message.from_user.first_name or "")
     text = (
-        f"سلام {name} 👋\n\n"
-        "به <b>ClassMate 2</b> خوش آمدی.\n"
-        "همه‌چیز از <b>دکمه‌های پایین</b> و پنل‌ها انجام می‌شود — نیازی به حفظ فرمان نیست.\n\n"
-        "از منو شروع کن یا «🔑 عضویت با کد» را بزن."
+        f"سلام {name} گرامی 👋\n\n"
+        "به <b>ClassMate 2</b> خوش آمدید.\n"
+        "تمام امکانات از طریق <b>دکمه‌های پایین صفحه</b> و پنل‌های اینلاین در دسترس است؛ نیازی به حفظ کردن فرمان‌ها ندارید.\n\n"
+        "از منو شروع کن یا «🔑 ورود با کد دعوت» را بزن."
     )
     if user.is_platform_admin:
-        text += "\n\n🔑 دسترسی <b>مدیر کل</b> فعال است — «🏛 مدیریت سامانه» را ببین."
+        text += "\n\n🔑 دسترسی <b>مدیر سامانه</b> برای شما فعال است؛ برای ادامه، «🏛 مدیریت سامانه» را انتخاب کنید."
 
     await message.answer(text, reply_markup=await menu_for(session, user))

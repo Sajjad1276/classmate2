@@ -4,11 +4,11 @@ from aiogram import Bot
 from aiogram.types import BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats, BotCommandScopeChat
 
 PRIVATE = [
-    BotCommand(command="start", description="باز کردن منوی اصلی"),
+    BotCommand(command="start", description="نمایش منوی اصلی ClassMate"),
 ]
 
 GROUP = [
-    BotCommand(command="start", description="راهنمای کوتاه"),
+    BotCommand(command="start", description="نمایش راهنمای سریع"),
 ]
 
 

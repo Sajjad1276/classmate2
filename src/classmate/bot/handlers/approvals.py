@@ -38,15 +38,15 @@ async def on_approve(callback: CallbackQuery, session: AsyncSession) -> None:
 
     model = {"homework": Homework, "exam": Exam, "report": DailyReport}.get(entity_type)
     if model is None:
-        await callback.answer("نوع نامعتبر", show_alert=True)
+        await callback.answer("نوع اطلاعات معتبر نیست", show_alert=True)
         return
     record = await session.get(model, record_id)
     if record is None:
-        await callback.answer("پیدا نشد", show_alert=True)
+        await callback.answer("موردنظر پیدا نشد", show_alert=True)
         return
 
     if not await can_approve(session, user, record.class_id):
-        await callback.answer("اجازه تأیید نداری", show_alert=True)
+        await callback.answer("شما اجازه تأیید این درخواست را ندارید", show_alert=True)
         return
 
     ctx = await get_class_with_school(session, record.class_id)
@@ -73,14 +73,14 @@ async def on_reject(callback: CallbackQuery, session: AsyncSession) -> None:
 
     model = {"homework": Homework, "exam": Exam, "report": DailyReport}.get(entity_type)
     if model is None:
-        await callback.answer("نوع نامعتبر", show_alert=True)
+        await callback.answer("نوع اطلاعات معتبر نیست", show_alert=True)
         return
     record = await session.get(model, record_id)
     if record is None:
-        await callback.answer("پیدا نشد", show_alert=True)
+        await callback.answer("موردنظر پیدا نشد", show_alert=True)
         return
     if not await can_approve(session, user, record.class_id):
-        await callback.answer("اجازه رد نداری", show_alert=True)
+        await callback.answer("شما اجازه رد این درخواست را ندارید", show_alert=True)
         return
 
     ctx = await get_class_with_school(session, record.class_id)
@@ -114,20 +114,20 @@ async def cmd_pending(message: Message, session: AsyncSession) -> None:
             return
         ctx = await get_class_with_school(session, class_id)
     else:
-        await message.answer("/pending شناسه_کلاس یا در گروه اجرا کن")
+        await message.answer("فرمت صحیح: /pending شناسه_کلاس؛ یا این فرمان را در گروه کلاس اجرا کنید.")
         return
 
     if ctx is None:
-        await message.answer("کلاس پیدا نشد")
+        await message.answer("کلاس موردنظر پیدا نشد")
         return
     class_group = ctx[0]
     if not await can_approve(session, user, class_group.id):
-        await message.answer("اجازه دیدن درخواست‌های در انتظار را نداری.")
+        await message.answer("شما اجازه مشاهده درخواست‌های در انتظار بررسی را ندارید.")
         return
 
     pending = await list_pending_records(session, class_group.id)
     if not pending:
-        await message.answer("درخواستی در انتظار تأیید نیست.")
+        await message.answer("در حال حاضر درخواستی برای بررسی وجود ندارد.")
         return
     lines = ["🕓 <b>در انتظار تأیید</b>"]
     for label, rec in pending:

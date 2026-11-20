@@ -30,7 +30,7 @@ alembic upgrade head
 5. **عضویت با کد** → student joins
 6. **ثبت جدید** → تکلیف / امتحان / گزارش (wizard)
 7. Approvers tap ✅ / ❌ on the group card
-8. **تکالیف / امتحانات / برنامه / گزارش امروز** to view
+8. **تکالیف / امتحانات / برنامه / گزارش‌های امروز** to view
 
 ## Stack
 

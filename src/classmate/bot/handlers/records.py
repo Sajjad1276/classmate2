@@ -60,7 +60,7 @@ async def subject_add(message: Message, session: AsyncSession) -> None:
         return
     ctx, user = await _ctx(message, session)
     if ctx is None:
-        await message.answer("این فرمان را در گروه کلاس اجرا کن.")
+        await message.answer("لطفاً این فرمان را در گروه کلاس اجرا کنید.")
         return
     class_group, _, school = ctx
     from classmate.services.permissions import is_class_manager
@@ -91,7 +91,7 @@ async def new_homework(message: Message, session: AsyncSession) -> None:
 
     ctx, user = await _ctx(message, session)
     if ctx is None:
-        await message.answer("در گروه کلاس اجرا کن یا بعداً نسخه خصوصی با شناسه کلاس اضافه می‌شود.")
+        await message.answer("این عملیات را در گروه کلاس اجرا کنید؛ پشتیبانی از اجرای خصوصی با شناسه کلاس به‌زودی اضافه می‌شود.")
         return
     class_group, _, school = ctx
     subject = await get_subject(session, class_group.id, school.id, subject_name)
@@ -122,7 +122,7 @@ async def new_homework(message: Message, session: AsyncSession) -> None:
             body,
             reply_markup=approval_keyboard("homework", record.id),
         )
-    await message.answer(f"تکلیف ثبت شد و منتظر تأیید است (#{record.id}).")
+    await message.answer(f"تکلیف ثبت شد و در انتظار بررسی و تأیید است (#{record.id}).")
 
 
 @router.message(Command("new_exam"))
@@ -143,12 +143,12 @@ async def new_exam(message: Message, session: AsyncSession) -> None:
 
     ctx, user = await _ctx(message, session)
     if ctx is None:
-        await message.answer("در گروه کلاس اجرا کن.")
+        await message.answer("لطفاً این عملیات را در گروه کلاس انجام دهید.")
         return
     class_group, _, school = ctx
     subject = await get_subject(session, class_group.id, school.id, subject_name)
     if subject is None:
-        await message.answer("درس پیدا نشد. اول /subject_add")
+        await message.answer("درس موردنظر پیدا نشد. اول /subject_add")
         return
     try:
         scheduled = parse_school_datetime(when_raw, school.timezone)
@@ -171,7 +171,7 @@ async def new_exam(message: Message, session: AsyncSession) -> None:
             body,
             reply_markup=approval_keyboard("exam", record.id),
         )
-    await message.answer(f"امتحان ثبت شد و منتظر تأیید است (#{record.id}).")
+    await message.answer(f"امتحان ثبت شد و در انتظار بررسی و تأیید است (#{record.id}).")
 
 
 @router.message(Command("new_report"))
@@ -189,7 +189,7 @@ async def new_report(message: Message, session: AsyncSession) -> None:
 
     ctx, user = await _ctx(message, session)
     if ctx is None:
-        await message.answer("در گروه کلاس اجرا کن.")
+        await message.answer("لطفاً این عملیات را در گروه کلاس انجام دهید.")
         return
     class_group, _, _ = ctx
     record = await create_daily_report(
@@ -206,7 +206,7 @@ async def new_report(message: Message, session: AsyncSession) -> None:
             text,
             reply_markup=approval_keyboard("report", record.id),
         )
-    await message.answer(f"گزارش ثبت شد و منتظر تأیید است (#{record.id}).")
+    await message.answer(f"گزارش ثبت شد و در انتظار بررسی و تأیید است (#{record.id}).")
 
 
 @router.message(Command("timetable_set"))
@@ -237,11 +237,11 @@ async def timetable_set(message: Message, session: AsyncSession) -> None:
 
     ctx, user = await _ctx(message, session)
     if ctx is None:
-        await message.answer("در گروه کلاس اجرا کن.")
+        await message.answer("لطفاً این عملیات را در گروه کلاس انجام دهید.")
         return
     class_group, _, school = ctx
     if not await is_class_manager(session, user, class_group.id):
-        await message.answer("فقط مدیر کلاس.")
+        await message.answer("این عملیات فقط برای مدیر کلاس مجاز است.")
         return
     subject = await get_subject(session, class_group.id, school.id, subject_name)
     if subject is None:

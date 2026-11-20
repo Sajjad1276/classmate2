@@ -121,13 +121,13 @@ async def ask_class(message: Message, session: AsyncSession, action: str, user: 
     classes = await classes_for_user(session, user)
     if not classes:
         await message.answer(
-            "هنوز کلاسی نداری.\nاز «🔑 عضویت با کد» استفاده کن یا از مدیر کلاس کد بگیر."
+            "هنوز عضو کلاسی نیستید.\nاز «🔑 ورود با کد دعوت» استفاده کنید یا کد دعوت را از مدیر کلاس دریافت کنید."
         )
         return
     if len(classes) == 1:
         await run_view(message, session, action, classes[0][0], user)
         return
-    await message.answer("کدام کلاس؟", reply_markup=class_picker(classes, action=action))
+    await message.answer("🏫 کلاس موردنظر را انتخاب کنید:", reply_markup=class_picker(classes, action=action))
 
 
 async def run_view(
@@ -135,7 +135,7 @@ async def run_view(
 ) -> None:
     ctx = await get_class_with_school(session, class_id)
     if ctx is None:
-        await target.answer("کلاس پیدا نشد.")
+        await target.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
         return
     class_group, _, school = ctx
 
@@ -174,7 +174,7 @@ async def run_view(
                 f"گزارشی برای امروز ({jalali_date(date.today())}) نیست."
             )
             return
-        lines = [f"📋 <b>گزارش امروز — {escape(class_group.name)}</b>"]
+        lines = [f"📋 <b>گزارش‌های امروز — {escape(class_group.name)}</b>"]
         for r in reports:
             lines.append(f"\n• {escape(r.title or 'گزارش')}\n{escape(r.body)}")
         await target.answer("\n".join(lines))
@@ -207,7 +207,7 @@ async def run_view(
 
     elif action == "pending":
         if not await can_approve(session, user, class_id):
-            await target.answer("اجازه مشاهده نداری.")
+            await target.answer("شما اجازه مشاهده این بخش را ندارید.")
             return
         pending = await list_pending_records(session, class_id)
         if not pending:
@@ -227,7 +227,7 @@ async def run_view(
 async def btn_cancel(message: Message, state: FSMContext, session: AsyncSession) -> None:
     await state.clear()
     user = await get_user(session, message.from_user)
-    await message.answer("لغو شد.", reply_markup=await menu_for(session, user))
+    await message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
 
 
 @router.message(F.text.in_({"🏫 کلاس‌های من", "کلاس‌های من"}))
@@ -237,15 +237,15 @@ async def btn_classes(message: Message, session: AsyncSession) -> None:
     user = await get_user(session, message.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
-        await message.answer("کلاسی نداری. از «🔑 عضویت با کد» استفاده کن.")
+        await message.answer("هنوز عضو کلاسی نیستید. از «🔑 ورود با کد دعوت» استفاده کنید.")
         return
-    lines = ["🏫 <b>کلاس‌های تو</b>"]
+    lines = ["🏫 <b>کلاس‌های شما</b>"]
     for cid, name, school in classes:
         lines.append(f"• <b>{escape(name)}</b> — {escape(school)}")
     await message.answer("\n".join(lines))
 
 
-@router.message(F.text.in_({"📚 تکالیف", "تکالیف"}))
+@router.message(F.text.in_({"📚 تکالیف من", "تکالیف"}))
 async def btn_hw(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -253,7 +253,7 @@ async def btn_hw(message: Message, session: AsyncSession) -> None:
     await ask_class(message, session, "homework", user)
 
 
-@router.message(F.text.in_({"📝 امتحانات", "امتحانات"}))
+@router.message(F.text.in_({"📝 تقویم امتحانات", "امتحانات"}))
 async def btn_ex(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -269,7 +269,7 @@ async def btn_week(message: Message, session: AsyncSession) -> None:
     await ask_class(message, session, "week", user)
 
 
-@router.message(F.text.in_({"📋 گزارش امروز", "گزارش امروز"}))
+@router.message(F.text.in_({"📋 گزارش‌های امروز", "گزارش‌های امروز"}))
 async def btn_today(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -277,7 +277,7 @@ async def btn_today(message: Message, session: AsyncSession) -> None:
     await ask_class(message, session, "today", user)
 
 
-@router.message(F.text.in_({"🕓 در انتظار تأیید", "در انتظار تأیید"}))
+@router.message(F.text.in_({"🕓 موارد در انتظار بررسی", "در انتظار تأیید"}))
 async def btn_pending(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -285,50 +285,62 @@ async def btn_pending(message: Message, session: AsyncSession) -> None:
     await ask_class(message, session, "pending", user)
 
 
-@router.message(F.text.in_({"➕ ثبت جدید", "ثبت جدید"}))
+@router.message(F.text.in_({"➕ ثبت اطلاعات", "ثبت جدید"}))
 async def btn_new(message: Message) -> None:
     if message.chat.type != "private":
         return
-    await message.answer("چه چیزی ثبت شود؟", reply_markup=new_record_menu())
+    await message.answer(
+        "📝 <b>ثبت اطلاعات جدید</b>\n\n"
+        "نوع اطلاعاتی را که می‌خواهید ثبت کنید انتخاب کنید:",
+        reply_markup=new_record_menu(),
+    )
 
 
 @router.message(F.text == "⚙️ مدیریت کلاس")
 async def btn_manage(message: Message) -> None:
     if message.chat.type != "private":
         return
-    await message.answer("مدیریت کلاس:", reply_markup=manage_class_menu())
+    await message.answer(
+        "⚙️ <b>مدیریت کلاس</b>\n\n"
+        "عملیات موردنظر را انتخاب کنید:",
+        reply_markup=manage_class_menu(),
+    )
 
 
 @router.message(F.text == "🏛 مدیریت سامانه")
 async def btn_admin(message: Message) -> None:
     if message.chat.type != "private":
         return
-    await message.answer("مدیریت سامانه:", reply_markup=admin_menu())
+    await message.answer(
+        "🏛 <b>مدیریت سامانه</b>\n\n"
+        "عملیات موردنظر را انتخاب کنید:",
+        reply_markup=admin_menu(),
+    )
 
 
-@router.message(F.text.in_({"🔑 عضویت با کد", "عضویت با کد"}))
+@router.message(F.text.in_({"🔑 ورود با کد دعوت", "عضویت با کد"}))
 async def btn_join(message: Message, state: FSMContext) -> None:
     if message.chat.type != "private":
         return
     await state.set_state(JoinForm.code)
     from classmate.bot.keyboards import cancel_kb
 
-    await message.answer("کد عضویت کلاس را بفرست:", reply_markup=cancel_kb())
+    await message.answer("🔑 کد دعوت کلاس را ارسال کنید:", reply_markup=cancel_kb())
 
 
-@router.message(F.text.in_({"❓ راهنما", "راهنما"}))
+@router.message(F.text.in_({"❓ راهنمای استفاده", "راهنما"}))
 async def btn_help(message: Message, session: AsyncSession) -> None:
     user = await get_user(session, message.from_user)
     await message.answer(
-        "<b>راهنمای ClassMate 2</b>\n\n"
-        "همه‌چیز از دکمه‌های پایین و پنل‌های اینلاین انجام می‌شود.\n\n"
-        "• <b>کلاس‌های من</b> — فهرست کلاس‌ها\n"
-        "• <b>ثبت جدید</b> — تکلیف / امتحان / گزارش (گام‌به‌گام)\n"
-        "• <b>تکالیف / امتحانات / برنامه / گزارش</b> — مشاهده\n"
-        "• <b>عضویت با کد</b> — ورود به کلاس با کد دعوت\n"
-        "• <b>مدیریت کلاس</b> — کد، درس، برنامه (مدیران)\n"
-        "• در گروه: برای اتصال گروه، کد اتصال را همین‌جا بفرست\n\n"
-        "برای انصراف از هر فرم: دکمه «❌ انصراف»",
+        "<b>راهنمای استفاده از ClassMate 2</b>\n\n"
+        "تمام امکانات ClassMate از طریق دکمه‌های پایین صفحه و پنل‌های اینلاین در دسترس است.\n\n"
+        "• <b>کلاس‌های من</b> — مشاهده فهرست کلاس‌های عضو‌شده\n"
+        "• <b>ثبت اطلاعات</b> — ثبت مرحله‌به‌مرحله تکلیف، امتحان یا گزارش\n"
+        "• <b>بخش‌های آموزشی</b> — مشاهده تکالیف، امتحانات، برنامه و گزارش‌ها\n"
+        "• <b>ورود با کد دعوت</b> — عضویت سریع در کلاس\n"
+        "• <b>مدیریت کلاس</b> — مدیریت کدها، درس‌ها و برنامه هفتگی برای مدیران\n"
+        "• <b>اتصال گروه</b> — کد اتصال را در گروه کلاس ارسال کنید\n\n"
+        "برای لغو هر فرم، گزینه «❌ انصراف» را انتخاب کنید.",
         reply_markup=await menu_for(session, user),
     )
 
@@ -340,7 +352,11 @@ async def btn_help(message: Message, session: AsyncSession) -> None:
 async def cb_home(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await state.clear()
     user = await get_user(session, callback.from_user)
-    await callback.message.answer("منوی اصلی:", reply_markup=await menu_for(session, user))
+    await callback.message.answer(
+        "🏠 <b>منوی اصلی</b>\n\n"
+        "گزینه موردنظر خود را انتخاب کنید:",
+        reply_markup=await menu_for(session, user),
+    )
     await callback.answer()
 
 

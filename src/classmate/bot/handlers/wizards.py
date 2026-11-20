@@ -83,7 +83,7 @@ async def entry_hw(callback: CallbackQuery, state: FSMContext, session: AsyncSes
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
-        await callback.message.answer("اول باید عضو یک کلاس شوی.")
+        await callback.message.answer("برای ادامه، ابتدا باید عضو یک کلاس باشید.")
         await callback.answer()
         return
     if len(classes) == 1:
@@ -101,7 +101,7 @@ async def entry_exam(callback: CallbackQuery, state: FSMContext, session: AsyncS
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
-        await callback.message.answer("اول عضو یک کلاس شو.")
+        await callback.message.answer("برای ادامه، ابتدا عضو یک کلاس شوید.")
         await callback.answer()
         return
     if len(classes) == 1:
@@ -118,7 +118,7 @@ async def entry_report(callback: CallbackQuery, state: FSMContext, session: Asyn
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
-        await callback.message.answer("اول عضو یک کلاس شو.")
+        await callback.message.answer("برای ادامه، ابتدا عضو یک کلاس شوید.")
         await callback.answer()
         return
     if len(classes) == 1:
@@ -135,11 +135,11 @@ async def entry_codes(callback: CallbackQuery, session: AsyncSession) -> None:
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
-        await callback.message.answer("کلاسی برای مدیریت نیست.")
+        await callback.message.answer("کلاسی برای مدیریت در دسترس نیست.")
         await callback.answer()
         return
     await callback.message.answer(
-        "کد برای کدام کلاس؟", reply_markup=class_picker(classes, action="codes")
+        "کد برای 🏫 کلاس موردنظر را انتخاب کنید:", reply_markup=class_picker(classes, action="codes")
     )
     await callback.answer()
 
@@ -149,11 +149,11 @@ async def entry_subject(callback: CallbackQuery, session: AsyncSession) -> None:
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
-        await callback.message.answer("کلاسی نیست.")
+        await callback.message.answer("کلاسی در دسترس نیست.")
         await callback.answer()
         return
     await callback.message.answer(
-        "درس برای کدام کلاس؟", reply_markup=class_picker(classes, action="subject")
+        "درس برای 🏫 کلاس موردنظر را انتخاب کنید:", reply_markup=class_picker(classes, action="subject")
     )
     await callback.answer()
 
@@ -163,11 +163,11 @@ async def entry_tt(callback: CallbackQuery, session: AsyncSession) -> None:
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
-        await callback.message.answer("کلاسی نیست.")
+        await callback.message.answer("کلاسی در دسترس نیست.")
         await callback.answer()
         return
     await callback.message.answer(
-        "برنامه کدام کلاس؟", reply_markup=class_picker(classes, action="timetable")
+        "برنامه 🏫 کلاس موردنظر را انتخاب کنید:", reply_markup=class_picker(classes, action="timetable")
     )
     await callback.answer()
 
@@ -175,7 +175,7 @@ async def entry_tt(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data == "adm:school")
 async def entry_school(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(SchoolForm.name)
-    await callback.message.answer("نام مدرسه را بفرست:", reply_markup=cancel_kb())
+    await callback.message.answer("نام مدرسه را ارسال کنید:", reply_markup=cancel_kb())
     await callback.answer()
 
 
@@ -196,11 +196,11 @@ async def entry_class(callback: CallbackQuery, state: FSMContext, session: Async
         )
     schools = [(s.id, s.name) for s in (await session.execute(q)).scalars().all()]
     if not schools:
-        await callback.message.answer("مدرسه‌ای برای ساخت کلاس نداری.")
+        await callback.message.answer("مدرسه‌ای برای ایجاد کلاس در دسترس شما نیست.")
         await callback.answer()
         return
     await state.set_state(ClassForm.school_id)
-    await callback.message.answer("مدرسه را انتخاب کن:", reply_markup=school_picker(schools))
+    await callback.message.answer("مدرسه موردنظر را انتخاب کنید:", reply_markup=school_picker(schools))
     await callback.answer()
 
 
@@ -212,50 +212,50 @@ async def start_homework_after_class(message, state, session, class_id: int) -> 
     subs = await _subjects(session, class_id)
     if not subs:
         await message.answer(
-            "این کلاس هنوز درسی ندارد. از «مدیریت کلاس → افزودن درس» اضافه کن."
+            "این کلاس هنوز درسی ندارد. از بخش «مدیریت کلاس → مدیریت درس‌ها» یک درس اضافه کنید."
         )
         await state.clear()
         return
     await state.set_state(HomeworkForm.subject)
-    await message.answer("درس را انتخاب کن:", reply_markup=subject_picker(subs))
+    await message.answer("درس موردنظر را انتخاب کنید:", reply_markup=subject_picker(subs))
 
 
 async def start_exam_after_class(message, state, session, class_id: int) -> None:
     await state.update_data(class_id=class_id)
     subs = await _subjects(session, class_id)
     if not subs:
-        await message.answer("ابتدا درس اضافه کن.")
+        await message.answer("ابتدا از بخش «مدیریت کلاس» یک درس اضافه کنید.")
         await state.clear()
         return
     await state.set_state(ExamForm.subject)
-    await message.answer("درس امتحان:", reply_markup=subject_picker(subs))
+    await message.answer("درس امتحان را انتخاب کنید:", reply_markup=subject_picker(subs))
 
 
 async def start_report_after_class(message, state, session, class_id: int) -> None:
     await state.update_data(class_id=class_id)
     await state.set_state(ReportForm.body)
-    await message.answer("متن گزارش امروز را بفرست:", reply_markup=cancel_kb())
+    await message.answer("متن گزارش امروز را ارسال کنید:", reply_markup=cancel_kb())
 
 
 async def start_subject_after_class(message, state, class_id: int) -> None:
     await state.update_data(class_id=class_id)
     await state.set_state(SubjectForm.name)
-    await message.answer("نام درس را بفرست (مثلاً ریاضی):", reply_markup=cancel_kb())
+    await message.answer("نام درس را ارسال کنید؛ برای نمونه: ریاضی", reply_markup=cancel_kb())
 
 
 async def start_timetable_after_class(message, state, class_id: int) -> None:
     await state.update_data(class_id=class_id)
     await state.set_state(TimetableForm.day)
-    await message.answer("روز هفته:", reply_markup=day_picker())
+    await message.answer("روز هفته را انتخاب کنید:", reply_markup=day_picker())
 
 
 async def issue_codes(message, session, user, class_id: int) -> None:
     if not await is_class_manager(session, user, class_id):
-        await message.answer("فقط مدیر کلاس می‌تواند کد بسازد.")
+        await message.answer("ساخت کد فقط برای مدیر کلاس مجاز است.")
         return
     cls = await session.get(ClassGroup, class_id)
     if not cls:
-        await message.answer("کلاس پیدا نشد.")
+        await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
         return
     group_code = make_code(8)
     join_code = make_code(8)
@@ -265,10 +265,10 @@ async def issue_codes(message, session, user, class_id: int) -> None:
     cls.member_join_code_expires_at = code_expiry(60 * 24 * 7)
     await message.answer(
         f"کدهای <b>{escape(cls.name)}</b>:\n\n"
-        f"🔗 اتصال گروه (۳۰ دقیقه):\n<code>{group_code}</code>\n\n"
-        f"🔑 عضویت دانش‌آموز (۷ روز):\n<code>{join_code}</code>\n\n"
-        f"در گروه کلاس همین کد اتصال را به عنوان پیام بفرست.\n"
-        f"دانش‌آموز از دکمه «عضویت با کد» استفاده کند."
+        f"🔗 کد اتصال گروه (اعتبار: ۳۰ دقیقه):\n<code>{group_code}</code>\n\n"
+        f"🔑 کد دعوت دانش‌آموز (اعتبار: ۷ روز):\n<code>{join_code}</code>\n\n"
+        f"کد اتصال را در گروه کلاس، به‌صورت یک پیام معمولی ارسال کنید.\n"
+        f"دانش‌آموز می‌تواند با انتخاب «ورود با کد دعوت» به کلاس ملحق شود."
     )
 
 
@@ -280,7 +280,7 @@ async def hw_subject(callback: CallbackQuery, state: FSMContext) -> None:
     sid = int(callback.data.split(":")[1])
     await state.update_data(subject_id=sid)
     await state.set_state(HomeworkForm.title)
-    await callback.message.answer("عنوان تکلیف را بفرست:", reply_markup=cancel_kb())
+    await callback.message.answer("عنوان تکلیف را ارسال کنید:", reply_markup=cancel_kb())
     await callback.answer()
 
 
@@ -290,7 +290,7 @@ async def hw_title(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(title=message.text.strip()[:180])
     await state.set_state(HomeworkForm.description)
-    await message.answer("توضیحات تکلیف:", reply_markup=cancel_kb())
+    await message.answer("توضیحات تکلیف را ارسال کنید:", reply_markup=cancel_kb())
 
 
 @router.message(HomeworkForm.description, F.text)
@@ -311,7 +311,7 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
         return
     data = await state.get_data()
     due = None
-    if message.text and message.text.strip() not in {"⏭ بدون موعد", "بدون موعد"}:
+    if message.text and message.text.strip() not in {"⏭ بدون تعیین موعد", "بدون موعد"}:
         try:
             due = parse_school_date(message.text)
         except ValueError as e:
@@ -321,7 +321,7 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
     user = await get_user(session, message.from_user)
     subject = await session.get(Subject, data["subject_id"])
     if subject is None:
-        await message.answer("درس نامعتبر.")
+        await message.answer("درس انتخاب‌شده معتبر نیست.")
         await state.clear()
         return
 
@@ -354,7 +354,7 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
 
     await state.clear()
     await message.answer(
-        f"✅ تکلیف ثبت شد و منتظر تأیید است.",
+        f"✅ تکلیف ثبت شد و در انتظار بررسی و تأیید است.",
         reply_markup=await menu_for(session, user),
     )
 
@@ -366,7 +366,7 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
 async def exam_subject(callback: CallbackQuery, state: FSMContext) -> None:
     await state.update_data(subject_id=int(callback.data.split(":")[1]))
     await state.set_state(ExamForm.title)
-    await callback.message.answer("عنوان امتحان:", reply_markup=cancel_kb())
+    await callback.message.answer("عنوان امتحان را ارسال کنید:", reply_markup=cancel_kb())
     await callback.answer()
 
 
@@ -376,7 +376,7 @@ async def exam_title(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(title=message.text.strip()[:180])
     await state.set_state(ExamForm.scope)
-    await message.answer("محدوده (فصل‌ها / صفحات):", reply_markup=cancel_kb())
+    await message.answer("محدوده امتحان (فصل‌ها یا صفحات) را ارسال کنید:", reply_markup=cancel_kb())
 
 
 @router.message(ExamForm.scope, F.text)
@@ -386,7 +386,7 @@ async def exam_scope(message: Message, state: FSMContext) -> None:
     await state.update_data(scope=message.text.strip())
     await state.set_state(ExamForm.when)
     await message.answer(
-        "زمان امتحان را بفرست:\nمثال: <code>۱۴۰۵/۰۸/۱۰ ۱۰:۰۰</code>",
+        "زمان برگزاری امتحان را ارسال کنید:\nمثال: <code>۱۴۰۵/۰۸/۱۰ ۱۰:۰۰</code>",
         reply_markup=cancel_kb(),
     )
 
@@ -398,7 +398,7 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
     data = await state.get_data()
     ctx = await get_class_with_school(session, data["class_id"])
     if ctx is None:
-        await message.answer("کلاس نامعتبر.")
+        await message.answer("کلاس انتخاب‌شده معتبر نیست.")
         await state.clear()
         return
     class_group, _, school = ctx
@@ -436,7 +436,7 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
         except Exception:
             pass
     await state.clear()
-    await message.answer("✅ امتحان ثبت شد و منتظر تأیید است.", reply_markup=await menu_for(session, user))
+    await message.answer("✅ امتحان ثبت شد و در انتظار بررسی و تأیید است.", reply_markup=await menu_for(session, user))
 
 
 # ── Report wizard ───────────────────────────────────────────────────
@@ -467,7 +467,7 @@ async def report_body(message: Message, state: FSMContext, session: AsyncSession
         except Exception:
             pass
     await state.clear()
-    await message.answer("✅ گزارش ثبت شد و منتظر تأیید است.", reply_markup=await menu_for(session, user))
+    await message.answer("✅ گزارش ثبت شد و در انتظار بررسی و تأیید است.", reply_markup=await menu_for(session, user))
 
 
 # ── Join ────────────────────────────────────────────────────────────
@@ -486,12 +486,12 @@ async def join_code(message: Message, state: FSMContext, session: AsyncSession) 
         )
     )
     if cls is None:
-        await message.answer("کد نامعتبر است. دوباره تلاش کن یا انصراف بده.")
+        await message.answer("کد واردشده معتبر نیست. لطفاً دوباره تلاش کنید یا عملیات را لغو کنید.")
         return
     from datetime import datetime, timezone
 
     if cls.member_join_code_expires_at and cls.member_join_code_expires_at < datetime.now(timezone.utc):
-        await message.answer("کد منقضی شده.")
+        await message.answer("این این کد منقضی شده است. لطفاً کد جدیدی دریافت کنید.")
         await state.clear()
         await message.answer("منو:", reply_markup=await menu_for(session, user))
         return
@@ -508,7 +508,7 @@ async def join_code(message: Message, state: FSMContext, session: AsyncSession) 
 
     await state.clear()
     await message.answer(
-        f"✅ به کلاس <b>{escape(cls.name)}</b> پیوستی.",
+        f"✅ با موفقیت به کلاس <b>{escape(cls.name)}</b> ملحق شدید.",
         reply_markup=await menu_for(session, user),
     )
 
@@ -530,7 +530,7 @@ async def group_connect_code(message: Message, session: AsyncSession) -> None:
     from datetime import datetime, timezone
 
     if cls.group_link_code_expires_at and cls.group_link_code_expires_at < datetime.now(timezone.utc):
-        await message.answer("کد اتصال منقضی شده.")
+        await message.answer("کد اتصال منقضی شده است. لطفاً از مدیر کلاس کد جدید دریافت کنید.")
         return
     cls.group_chat_id = message.chat.id
     cls.group_chat_title = message.chat.title
@@ -557,7 +557,7 @@ async def school_year(message: Message, state: FSMContext, session: AsyncSession
         return
     user = await get_user(session, message.from_user)
     if not user.is_platform_admin:
-        await message.answer("فقط مدیر کل سامانه.")
+        await message.answer("این عملیات فقط برای مدیر سامانه مجاز است.")
         await state.clear()
         return
     data = await state.get_data()
@@ -612,7 +612,7 @@ async def class_name(message: Message, state: FSMContext, session: AsyncSession)
     user = await get_user(session, message.from_user)
     school_id = data["school_id"]
     if not await is_school_admin(session, user, school_id):
-        await message.answer("دسترسی نداری.")
+        await message.answer("شما دسترسی انجام این عملیات را ندارید.")
         await state.clear()
         return
     year = await session.scalar(
@@ -621,7 +621,7 @@ async def class_name(message: Message, state: FSMContext, session: AsyncSession)
         )
     )
     if year is None:
-        await message.answer("سال تحصیلی فعال نیست.")
+        await message.answer("سال تحصیلی فعالی برای این مدرسه تعریف نشده است.")
         await state.clear()
         return
     cls = ClassGroup(
@@ -652,12 +652,12 @@ async def subject_name(message: Message, state: FSMContext, session: AsyncSessio
     user = await get_user(session, message.from_user)
     class_id = data["class_id"]
     if not await is_class_manager(session, user, class_id):
-        await message.answer("فقط مدیر کلاس.")
+        await message.answer("این عملیات فقط برای مدیر کلاس مجاز است.")
         await state.clear()
         return
     ctx = await get_class_with_school(session, class_id)
     if not ctx:
-        await message.answer("کلاس نامعتبر.")
+        await message.answer("کلاس انتخاب‌شده معتبر نیست.")
         await state.clear()
         return
     _, _, school = ctx
@@ -687,13 +687,13 @@ async def tt_period(message: Message, state: FSMContext, session: AsyncSession) 
     try:
         period = int(message.text.strip())
     except ValueError:
-        await message.answer("یک عدد بفرست.")
+        await message.answer("لطفاً شماره زنگ را به‌صورت عدد وارد کنید.")
         return
     data = await state.get_data()
     await state.update_data(period=period)
     subs = await _subjects(session, data["class_id"])
     if not subs:
-        await message.answer("ابتدا درس اضافه کن.")
+        await message.answer("ابتدا از بخش «مدیریت کلاس» یک درس اضافه کنید.")
         await state.clear()
         return
     await state.set_state(TimetableForm.subject)
@@ -720,14 +720,14 @@ async def tt_time(message: Message, state: FSMContext, session: AsyncSession) ->
         eh, em = map(int, end_s.split(":"))
         starts, ends = dtime(sh, sm), dtime(eh, em)
     except Exception:
-        await message.answer("قالب درست: 08:00-08:45")
+        await message.answer("قالب زمان صحیح: 08:00-08:45")
         return
 
     data = await state.get_data()
     user = await get_user(session, message.from_user)
     class_id = data["class_id"]
     if not await is_class_manager(session, user, class_id):
-        await message.answer("فقط مدیر کلاس.")
+        await message.answer("این عملیات فقط برای مدیر کلاس مجاز است.")
         await state.clear()
         return
 
