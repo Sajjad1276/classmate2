@@ -436,3 +436,91 @@ async def test_group_link_rejects_expired_code_and_inactive_school(world):
             bot_is_admin=True,
             actor_is_admin=True,
         )
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        (
+            "/timetable_set شنبه | 0 | ریاضی | 08:00-08:45",
+            "شماره زنگ باید بین ۱ تا ۲۰ باشد.",
+        ),
+        (
+            "/timetable_set شنبه | 1 | ریاضی | 09:00-08:45",
+            "ساعت پایان باید بعد از ساعت شروع باشد.",
+        ),
+    ],
+)
+async def test_legacy_timetable_command_rejects_invalid_slots(world, command, expected):
+    from classmate.bot.handlers.records import timetable_set
+
+    replies = []
+
+    async def answer(text):
+        replies.append(text)
+
+    message = SimpleNamespace(text=command, answer=answer)
+    await timetable_set(message, world["session"])
+
+    assert replies == [expected]
+
+
+@pytest.mark.asyncio
+async def test_student_enrollment_rejects_inactive_class_or_school(world):
+    session = world["session"]
+    world["school"].is_active = False
+
+    with pytest.raises(ValueError, match="فعال نیست"):
+        await activate_student_membership(
+            session, world["class"].id, world["student"].id
+        )
+
+
+@pytest.mark.asyncio
+async def test_group_link_rejects_code_without_expiration(world):
+    session = world["session"]
+    cls = world["class"]
+    code = "TUVW2345"
+    cls.group_link_code_hash = hash_code(code)
+    cls.group_link_code_expires_at = None
+
+    with pytest.raises(ValueError, match="فاقد تاریخ انقضا"):
+        await connect_group_by_code(
+            session,
+            code=code,
+            chat_id=-1001234567099,
+            chat_title="گروه",
+            actor=world["manager"],
+            bot_is_admin=True,
+            actor_is_admin=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_school_creation_rejects_unknown_timezone(world, monkeypatch):
+    from classmate.bot.handlers import onboarding
+
+    async def admin_user(*args, **kwargs):
+        return world["manager"]
+
+    monkeypatch.setattr(onboarding, "_user", admin_user)
+    replies = []
+
+    async def answer(text):
+        replies.append(text)
+
+    message = SimpleNamespace(
+        chat=SimpleNamespace(type="private"),
+        text="/school_new مدرسه آزمایشی | ۱۴۰۶-۱۴۰۷ | Invalid/Not_A_Zone",
+        from_user=SimpleNamespace(id=world["manager"].telegram_id),
+        answer=answer,
+    )
+
+    await onboarding.school_new(message, world["session"])
+
+    assert replies == ["منطقه زمانی نامعتبر است. نمونه معتبر: Asia/Tehran"]
+    assert await world["session"].scalar(
+        select(School.id).where(School.name == "مدرسه آزمایشی")
+    ) is None
