@@ -334,17 +334,16 @@ async def _record_auto_approval(
             await schedule_approved_record_reminders(
                 session, class_group, record, entity_type, timezone_name
             )
-    await _queue_approved_record_publication(
-        session,
-        entity_type,
-        await session.get(
-            Homework if entity_type == EntityType.HOMEWORK.value else Exam
-            if entity_type == EntityType.EXAM.value
-            else DailyReport,
-            entity_id,
-        ),
-        timezone_name,
-    )
+    record_model = {
+        EntityType.HOMEWORK.value: Homework,
+        EntityType.EXAM.value: Exam,
+        EntityType.REPORT.value: DailyReport,
+    }[entity_type]
+    record = await session.get(record_model, entity_id)
+    if record is not None:
+        await _queue_approved_record_publication(
+            session, entity_type, record, timezone_name
+        )
 
 
 async def create_homework(
