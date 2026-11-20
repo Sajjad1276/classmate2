@@ -438,6 +438,12 @@ class TelegramOutbox(Base):
             "OR (action_type IS NOT NULL AND action_id IS NOT NULL)",
             name="ck_telegram_outbox_action_pair",
         ),
+        CheckConstraint(
+            "(entity_type IS NULL AND entity_id IS NULL AND expected_record_status IS NULL) "
+            "OR (entity_type IS NOT NULL AND entity_id IS NOT NULL "
+            "AND expected_record_status IS NOT NULL)",
+            name="ck_telegram_outbox_entity_pair",
+        ),
         Index("ix_telegram_outbox_due_status", "status", "scheduled_at"),
         Index("ix_telegram_outbox_target_status", "target_chat_id", "status"),
     )
@@ -448,6 +454,9 @@ class TelegramOutbox(Base):
     class_id: Mapped[int | None] = mapped_column(
         ForeignKey("classes.id", ondelete="CASCADE")
     )
+    entity_type: Mapped[str | None] = mapped_column(String(24))
+    entity_id: Mapped[int | None] = mapped_column(Integer)
+    expected_record_status: Mapped[str | None] = mapped_column(String(32))
     recipient_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE")
     )
