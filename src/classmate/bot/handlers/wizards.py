@@ -612,9 +612,9 @@ async def join_code(message: Message, state: FSMContext, session: AsyncSession) 
     if (
         cls.member_join_code_expires_at is None
         or cls.member_join_code_expires_at.replace(tzinfo=cls.member_join_code_expires_at.tzinfo or timezone.utc)
-        < datetime.now(timezone.utc)
+        <= datetime.now(timezone.utc)
     ):
-        await message.answer("این این کد منقضی شده است. لطفاً کد جدیدی دریافت کنید.")
+        await message.answer("این کد منقضی شده است. لطفاً کد جدیدی دریافت کنید.")
         await state.clear()
         await message.answer("منو:", reply_markup=await menu_for(session, user))
         return
