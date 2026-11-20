@@ -4,6 +4,7 @@ from typing import Any
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
@@ -19,7 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from classmate.core.enums import RecordStatus, ReminderStatus, Role
+from classmate.core.enums import OutboxStatus, RecordStatus, ReminderStatus, Role
 from classmate.db.base import Base
 
 
@@ -415,6 +416,64 @@ class ReminderJob(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     dedupe_key: Mapped[str] = mapped_column(String(180), nullable=False)
+
+
+class TelegramOutbox(Base):
+    """Durable, transactional queue for bot-originated notifications."""
+
+    __tablename__ = "telegram_outbox"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_telegram_outbox_idempotency"),
+        CheckConstraint(
+            "target_type IN ('group', 'private')",
+            name="ck_telegram_outbox_target_type",
+        ),
+        CheckConstraint(
+            "(target_type = 'group' AND class_id IS NOT NULL AND recipient_user_id IS NULL) "
+            "OR (target_type = 'private' AND recipient_user_id IS NOT NULL)",
+            name="ck_telegram_outbox_target_scope",
+        ),
+        CheckConstraint(
+            "(action_type IS NULL AND action_id IS NULL) "
+            "OR (action_type IS NOT NULL AND action_id IS NOT NULL)",
+            name="ck_telegram_outbox_action_pair",
+        ),
+        Index("ix_telegram_outbox_due_status", "status", "scheduled_at"),
+        Index("ix_telegram_outbox_target_status", "target_chat_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    target_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    class_id: Mapped[int | None] = mapped_column(
+        ForeignKey("classes.id", ondelete="CASCADE")
+    )
+    recipient_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE")
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    parse_mode: Mapped[str | None] = mapped_column(String(16), default="HTML")
+    disable_notification: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    action_type: Mapped[str | None] = mapped_column(String(24))
+    action_id: Mapped[int | None] = mapped_column(Integer)
+    scheduled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    status: Mapped[OutboxStatus] = mapped_column(
+        Enum(OutboxStatus, name="telegram_outbox_status", native_enum=False),
+        default=OutboxStatus.PENDING,
+        nullable=False,
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    idempotency_key: Mapped[str] = mapped_column(String(180), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class ProcessedUpdate(Base):
