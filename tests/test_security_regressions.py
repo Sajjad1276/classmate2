@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
-from classmate.core.enums import EntityType, RecordStatus, ReminderStatus, Role
+from classmate.core.enums import EntityType, OutboxStatus, RecordStatus, ReminderStatus, Role
 from classmate.db.models import (
     ClassGroup,
     ClassMembership,
@@ -14,6 +14,7 @@ from classmate.db.models import (
     PollOption,
     PollResponse,
     ReminderJob,
+    TelegramOutbox,
     User,
 )
 from classmate.services.phase1 import archive_record
@@ -23,6 +24,7 @@ from classmate.services.permissions import (
     user_can_access_class,
 )
 from classmate.services.records import create_homework
+from classmate.services.outbox import enqueue_telegram_message
 from classmate.services.users import ensure_user
 
 
@@ -172,6 +174,18 @@ async def test_archiving_homework_cancels_pending_reminders(world):
         status=ReminderStatus.PENDING,
         dedupe_key=f"test-homework-{homework.id}",
     )
+    outbox = await enqueue_telegram_message(
+        session,
+        target_type="private",
+        target_chat_id=world["student"].telegram_id,
+        recipient_user_id=world["student"].id,
+        class_id=world["class"].id,
+        entity_type="homework",
+        entity_id=homework.id,
+        expected_record_status="APPROVED",
+        text="بازخورد تکلیف",
+        idempotency_key=f"feedback:{homework.id}",
+    )
     session.add(reminder)
     await session.flush()
 
@@ -182,6 +196,7 @@ async def test_archiving_homework_cancels_pending_reminders(world):
     assert ok is True
     assert homework.status == RecordStatus.CANCELLED
     assert reminder.status == ReminderStatus.CANCELLED
+    assert outbox.status == OutboxStatus.CANCELLED
 
 
 @pytest.mark.asyncio
@@ -217,3 +232,38 @@ async def test_stale_membership_cannot_access_inactive_class(world):
     assert not await user_can_access_class(
         session, world["student"], world["class"].id
     )
+
+
+
+@pytest.mark.asyncio
+async def test_telegram_outbox_enqueue_is_idempotent_and_detects_key_collisions(world):
+    session = world["session"]
+    world["class"].group_chat_id = -1001234567890
+    args = {
+        "target_type": "group",
+        "target_chat_id": world["class"].group_chat_id,
+        "class_id": world["class"].id,
+        "entity_type": "homework",
+        "entity_id": 321,
+        "expected_record_status": "PENDING",
+        "text": "درخواست جدید برای بررسی",
+        "action_type": "homework",
+        "action_id": 321,
+        "idempotency_key": "approval:homework:321",
+    }
+
+    first = await enqueue_telegram_message(session, **args)
+    second = await enqueue_telegram_message(session, **args)
+
+    assert first.id == second.id
+    assert first.status == OutboxStatus.PENDING
+    assert await session.scalar(
+        select(TelegramOutbox.id).where(
+            TelegramOutbox.idempotency_key == "approval:homework:321"
+        )
+    ) == first.id
+
+    with pytest.raises(ValueError, match="reused with a different payload"):
+        await enqueue_telegram_message(
+            session, **{**args, "text": "متن دیگری با همان کلید"}
+        )
