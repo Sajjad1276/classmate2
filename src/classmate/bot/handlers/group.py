@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.bot.handlers.ui import get_user, run_view
+from classmate.bot.handlers.ui import delete_panel, get_user, run_view
 from classmate.bot.keyboards import group_panel
 from classmate.services.records import get_group_context
 
@@ -105,6 +105,7 @@ async def cb_group_view(callback: CallbackQuery, session: AsyncSession) -> None:
     action = parts[2]
     class_id = int(parts[3])
     user = await get_user(session, callback.from_user, private=False)
+    await delete_panel(callback.message)
     await run_view(callback.message, session, action, class_id, user)
     await callback.answer()
 
@@ -122,6 +123,7 @@ async def cb_group_new(callback: CallbackQuery, state: FSMContext, session: Asyn
     )
 
     await state.clear()
+    await delete_panel(callback.message)
     await callback.answer()
 
     if kind == "hw":

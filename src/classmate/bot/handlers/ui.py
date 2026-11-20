@@ -560,6 +560,10 @@ async def cb_pick(callback: CallbackQuery, session: AsyncSession, state: FSMCont
         from classmate.bot.handlers.wizards import start_timetable_after_class
 
         await start_timetable_after_class(callback.message, state, class_id)
+    elif action == "group":
+        from classmate.bot.handlers.wizards import start_group_after_class
+
+        await start_group_after_class(callback.message, state, class_id)
 
 
 @router.callback_query(F.data.startswith("pickpage:"))

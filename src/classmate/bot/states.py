@@ -41,6 +41,7 @@ class JoinForm(StatesGroup):
 
 class ConnectForm(StatesGroup):
     code = State()
+    chat = State()
 
 
 class SubjectForm(StatesGroup):

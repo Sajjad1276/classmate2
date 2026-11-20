@@ -6,7 +6,7 @@ from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +14,9 @@ from classmate.bot.keyboards import (
     approval_keyboard,
     cancel_kb,
     class_picker,
+    connect_group_kb,
     day_picker,
+    group_request_kb,
     school_picker,
     skip_or_cancel_kb,
     subject_picker,
@@ -180,6 +182,37 @@ async def entry_tt(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("mgr:connect_group"))
+async def entry_group(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    """Start official Telegram chat selection for a class manager."""
+    await delete_panel(callback.message)
+    user = await get_user(session, callback.from_user)
+    parts = callback.data.split(":")
+    if len(parts) == 3:
+        class_id = int(parts[2])
+        if not await is_class_manager(session, user, class_id):
+            await callback.answer("فقط مدیر کلاس می‌تواند گروه را متصل کند.", show_alert=True)
+            return
+        await start_group_after_class(callback.message, state, class_id)
+        await callback.answer()
+        return
+
+    classes = [
+        row for row in await classes_for_user(session, user)
+        if await is_class_manager(session, user, row[0])
+    ]
+    if not classes:
+        await callback.message.answer("شما مدیر هیچ کلاسی نیستید.")
+    elif len(classes) == 1:
+        await start_group_after_class(callback.message, state, classes[0][0])
+    else:
+        await callback.message.answer(
+            "🏫 کلاس موردنظر را انتخاب کنید:",
+            reply_markup=class_picker(classes, action="group"),
+        )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "adm:school")
 async def entry_school(callback: CallbackQuery, state: FSMContext) -> None:
     await delete_panel(callback.message)
@@ -257,6 +290,16 @@ async def start_timetable_after_class(message, state, class_id: int) -> None:
     await state.update_data(class_id=class_id)
     await state.set_state(TimetableForm.day)
     await message.answer("روز هفته را انتخاب کنید:", reply_markup=day_picker())
+
+
+async def start_group_after_class(message, state, class_id: int) -> None:
+    await state.update_data(class_id=class_id)
+    await state.set_state(ConnectForm.chat)
+    await message.answer(
+        "🔗 <b>اتصال گروه کلاس</b>\n\n"
+        "گروه را از دکمه زیر انتخاب کنید. شما و ربات باید در آن گروه دسترسی مدیریتی داشته باشید.",
+        reply_markup=group_request_kb(request_id=class_id),
+    )
 
 
 async def issue_codes(message, session, user, class_id: int) -> None:
@@ -525,6 +568,75 @@ async def join_code(message: Message, state: FSMContext, session: AsyncSession) 
     )
 
 
+@router.message(ConnectForm.chat, F.chat_shared)
+async def group_shared(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    shared = message.chat_shared
+    if shared is None:
+        return
+    data = await state.get_data()
+    class_id = data.get("class_id")
+    user = await get_user(session, message.from_user)
+    if not class_id or not await is_class_manager(session, user, class_id):
+        await state.clear()
+        await message.answer("دسترسی اتصال گروه برای شما فعال نیست.", reply_markup=ReplyKeyboardRemove())
+        return
+
+    try:
+        chat = await message.bot.get_chat(shared.chat_id)
+        bot_user = await message.bot.me()
+        bot_member = await message.bot.get_chat_member(shared.chat_id, bot_user.id)
+        user_member = await message.bot.get_chat_member(shared.chat_id, message.from_user.id)
+    except Exception:
+        logger.warning("Could not verify selected group %s", shared.chat_id, exc_info=True)
+        await message.answer(
+            "ربات به گروه انتخاب‌شده دسترسی ندارد. ابتدا ربات را به گروه اضافه و مدیر کنید، سپس دوباره تلاش کنید."
+        )
+        return
+
+    if bot_member.status not in {"administrator", "creator"}:
+        await message.answer("ربات باید در گروه مدیر باشد؛ سپس دوباره گروه را انتخاب کنید.")
+        return
+    if user_member.status not in {"administrator", "creator"}:
+        await message.answer("فقط مالک یا مدیر گروه می‌تواند آن را به کلاس متصل کند.")
+        return
+
+    conflict = await session.scalar(
+        select(ClassGroup.id).where(
+            ClassGroup.group_chat_id == shared.chat_id,
+            ClassGroup.id != class_id,
+        )
+    )
+    if conflict is not None:
+        await state.clear()
+        await message.answer("این گروه قبلاً به کلاس دیگری متصل شده است.", reply_markup=ReplyKeyboardRemove())
+        return
+
+    class_group = await session.get(ClassGroup, class_id)
+    if class_group is None or not class_group.is_active:
+        await state.clear()
+        await message.answer("کلاس موردنظر پیدا نشد.", reply_markup=ReplyKeyboardRemove())
+        return
+    class_group.group_chat_id = shared.chat_id
+    class_group.group_chat_title = shared.title or chat.title or shared.username or "گروه کلاس"
+    await state.clear()
+    await message.answer(
+        f"✅ گروه «{escape(class_group.group_chat_title)}» به کلاس <b>{escape(class_group.name)}</b> متصل شد.\n"
+        "اعضای گروه می‌توانند «منو» را ارسال کنند تا پنل خدمات کلاس را ببینند.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    await message.answer("منوی اصلی:", reply_markup=await menu_for(session, user))
+
+
+@router.message(ConnectForm.chat, F.text)
+async def group_shared_text(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if message.text == "❌ انصراف":
+        await state.clear()
+        user = await get_user(session, message.from_user)
+        await message.answer("اتصال گروه لغو شد.", reply_markup=await menu_for(session, user))
+        return
+    await message.answer("برای اتصال، دکمه «✅ انتخاب گروه کلاس» را بزنید یا «❌ انصراف» را انتخاب کنید.")
+
+
 # ── Group connect: any text that looks like a code in a group ───────
 
 
@@ -649,8 +761,8 @@ async def class_name(message: Message, state: FSMContext, session: AsyncSession)
     await state.clear()
     await message.answer(
         f"✅ کلاس <b>{escape(cls.name)}</b> ساخته شد.\n"
-        f"از «مدیریت کلاس → کد اتصال و عضویت» کد بساز.",
-        reply_markup=await menu_for(session, user),
+        "برای فعال‌سازی خدمات کلاس، همین حالا گروه کلاس را متصل کنید.",
+        reply_markup=connect_group_kb(cls.id),
     )
 
 
