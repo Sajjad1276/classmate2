@@ -239,9 +239,9 @@ async def entry_tt(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("mgr:connect_group"))
 async def entry_group(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    """Start official Telegram chat selection for a class manager."""
     if not await _require_private_callback(callback):
         return
-    """Start official Telegram chat selection for a class manager."""
     await delete_panel(callback.message)
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     parts = callback.data.split(":")
