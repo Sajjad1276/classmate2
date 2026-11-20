@@ -43,19 +43,14 @@ _ROLE_CACHE: dict[int, tuple[float, tuple[bool, bool, bool]]] = {}
 _CLASS_CACHE: dict[int, tuple[float, list[tuple[int, str, str]]]] = {}
 
 
-async def hide_reply_keyboard(message: Message) -> None:
-    """Remove the persistent keyboard without leaving a visible status message."""
-    transient = await message.answer("\u2063", reply_markup=ReplyKeyboardRemove())
-    try:
-        await transient.delete()
-    except Exception:
-        pass
-
-
 async def render_panel(message: Message, text: str, markup) -> None:
-    """Close the home keyboard and show one useful panel message."""
-    await hide_reply_keyboard(message)
-    await message.answer(text, reply_markup=markup)
+    """Remove the Reply Keyboard and attach the Inline Keyboard to the same message."""
+    panel = await message.answer(text, reply_markup=ReplyKeyboardRemove())
+    try:
+        await panel.edit_reply_markup(reply_markup=markup)
+    except Exception:
+        # The text still remains useful even if an old Telegram client rejects the edit.
+        pass
 
 
 async def get_user(session: AsyncSession, tg, private: bool = True) -> User:
@@ -162,8 +157,7 @@ async def ask_class(message: Message, session: AsyncSession, action: str, user: 
     if len(classes) == 1:
         await run_view(message, session, action, classes[0][0], user)
         return
-    await hide_reply_keyboard(message)
-    await message.answer("🏫 کلاس موردنظر را انتخاب کنید:", reply_markup=class_picker(classes, action=action))
+    await render_panel(message, "🏫 کلاس موردنظر را انتخاب کنید:", class_picker(classes, action=action))
 
 
 async def run_view(
@@ -332,11 +326,10 @@ async def btn_education(message: Message) -> None:
 async def btn_new(message: Message) -> None:
     if message.chat.type != "private":
         return
-    await hide_reply_keyboard(message)
-    await message.answer(
-        "📝 <b>ثبت اطلاعات جدید</b>\n\n"
-        "نوع اطلاعاتی را که می‌خواهید ثبت کنید انتخاب کنید:",
-        reply_markup=new_record_menu(),
+    await render_panel(
+        message,
+        "📝 <b>ثبت اطلاعات جدید</b>\n\nنوع اطلاعاتی را که می‌خواهید ثبت کنید انتخاب کنید:",
+        new_record_menu(),
     )
 
 
@@ -344,11 +337,10 @@ async def btn_new(message: Message) -> None:
 async def btn_manage(message: Message) -> None:
     if message.chat.type != "private":
         return
-    await hide_reply_keyboard(message)
-    await message.answer(
-        "⚙️ <b>مدیریت کلاس</b>\n\n"
-        "عملیات موردنظر را انتخاب کنید:",
-        reply_markup=management_menu(),
+    await render_panel(
+        message,
+        "⚙️ <b>مدیریت کلاس</b>\n\nعملیات موردنظر را انتخاب کنید:",
+        management_menu(),
     )
 
 
