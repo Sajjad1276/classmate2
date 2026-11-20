@@ -226,6 +226,9 @@ async def back_to_review_queue(callback: CallbackQuery, session: AsyncSession) -
 
 @router.callback_query(F.data.startswith("approve:"))
 async def on_approve(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message and callback.message.chat.type != "private":
+        await callback.answer("بررسی درخواست‌ها از این پس فقط در پنل خصوصی ربات انجام می‌شود.", show_alert=True)
+        return
     _, entity_type, id_s = callback.data.split(":", 2)
     record_id = int(id_s)
     user = await _user(session, callback.from_user)
@@ -266,6 +269,9 @@ async def on_approve(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("reject:"))
 async def on_reject(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message and callback.message.chat.type != "private":
+        await callback.answer("رد درخواست‌ها از این پس فقط در پنل خصوصی ربات انجام می‌شود.", show_alert=True)
+        return
     _, entity_type, id_s = callback.data.split(":", 2)
     record_id = int(id_s)
     user = await _user(session, callback.from_user)
@@ -303,7 +309,6 @@ async def on_reject(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.message(Command("pending"))
 async def cmd_pending(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
-        await message.answer("صف بررسی فقط از پنل خصوصی ربات در دسترس اپراتورهاست.")
         return
     user = await _user(session, message.from_user, private=True)
     await show_pending_for_user(message, session, user)
