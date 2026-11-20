@@ -591,6 +591,9 @@ async def join_code(message: Message, state: FSMContext, session: AsyncSession) 
         return
     code = message.text.strip().upper()
     user = await get_user(session, message.from_user, private=True)
+    if not user.is_active:
+        await message.answer("حساب کاربری شما غیرفعال است.")
+        return
     cls = await session.scalar(
         select(ClassGroup)
         .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
