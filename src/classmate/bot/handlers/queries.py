@@ -1,5 +1,6 @@
-from datetime import date
+from datetime import datetime
 from html import escape
+from zoneinfo import ZoneInfo
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -98,7 +99,7 @@ async def cmd_today(message: Message, session: AsyncSession) -> None:
         await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
         return
     class_group, _, school = ctx
-    today = date.today()
+    today = datetime.now(ZoneInfo(school.timezone)).date()
     reports = await list_reports(session, class_group.id, today)
     if not reports:
         await message.answer(f"گزارش تأییدشده‌ای برای امروز ({jalali_date(today)}) نیست.")
