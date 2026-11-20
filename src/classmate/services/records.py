@@ -26,7 +26,7 @@ from classmate.db.models import (
 )
 from classmate.domain.dates import persian_weekday
 from classmate.services.notifications import schedule_approved_record_reminders
-from classmate.services.permissions import can_approve
+from classmate.services.permissions import can_approve, get_class_with_school
 
 
 def normalize_subject_name(value: str) -> str:
@@ -71,11 +71,18 @@ async def add_subject(
     actual_school_id = await session.scalar(
         select(AcademicYear.school_id)
         .join(ClassGroup, ClassGroup.academic_year_id == AcademicYear.id)
-        .where(ClassGroup.id == class_id, ClassGroup.is_active.is_(True))
+        .join(School, AcademicYear.school_id == School.id)
+        .where(
+            ClassGroup.id == class_id,
+            ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
+        )
     )
     if actual_school_id != school_id:
-        raise ValueError("مدرسهٔ درس با مدرسهٔ کلاس مطابقت ندارد.")
+        raise ValueError("مدرسهٔ درس با مدرسهٔ کلاس مطابقت ندارد یا غیرفعال است.")
     normalized = normalize_subject_name(name)
+    if not normalized:
+        raise ValueError("نام درس نمی‌تواند خالی باشد.")
     subject = await session.scalar(
         select(Subject).where(
             Subject.school_id == school_id,
@@ -105,10 +112,12 @@ async def _validate_subject_for_class(
         .join(Subject, ClassSubject.subject_id == Subject.id)
         .join(ClassGroup, ClassSubject.class_id == ClassGroup.id)
         .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
         .where(
             ClassSubject.class_id == class_id,
             ClassSubject.subject_id == subject.id,
             ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
         )
     )
     linked = row.first()
@@ -182,6 +191,16 @@ async def get_or_create_next_lesson(
     return lesson
 
 
+
+
+async def _require_active_creator(session: AsyncSession, user_id: int) -> None:
+    active_user = await session.scalar(
+        select(User.id).where(User.id == user_id, User.is_active.is_(True))
+    )
+    if active_user is None:
+        raise PermissionError("حساب ثبت‌کننده فعال نیست.")
+
+
 async def create_homework(
     session: AsyncSession,
     class_id: int,
@@ -193,6 +212,18 @@ async def create_homework(
     due_session_id: int | None = None,
 ) -> Homework:
     await _validate_subject_for_class(session, class_id, subject)
+    await _require_active_creator(session, created_by)
+    if due_session_id is not None:
+        lesson_id = await session.scalar(
+            select(LessonSession.id).where(
+                LessonSession.id == due_session_id,
+                LessonSession.class_id == class_id,
+            )
+        )
+        if lesson_id is None:
+            raise ValueError("جلسه انتخاب‌شده متعلق به این کلاس نیست.")
+    if not title.strip():
+        raise ValueError("عنوان تکلیف نمی‌تواند خالی باشد.")
     record = Homework(
         class_id=class_id,
         subject_id=subject.id,
@@ -219,6 +250,9 @@ async def create_exam(
     created_by: int,
 ) -> Exam:
     await _validate_subject_for_class(session, class_id, subject)
+    await _require_active_creator(session, created_by)
+    if not title.strip():
+        raise ValueError("عنوان امتحان نمی‌تواند خالی باشد.")
     if scheduled_at.tzinfo is None:
         raise ValueError("Exam datetime must be timezone-aware")
     record = Exam(
@@ -244,6 +278,11 @@ async def create_daily_report(
     created_by: int,
     title: str | None = None,
 ) -> DailyReport:
+    if await get_class_with_school(session, class_id) is None:
+        raise ValueError("کلاس یا مدرسه فعال نیست.")
+    await _require_active_creator(session, created_by)
+    if not body.strip():
+        raise ValueError("متن گزارش نمی‌تواند خالی باشد.")
     record = DailyReport(
         class_id=class_id,
         report_date=report_date,
