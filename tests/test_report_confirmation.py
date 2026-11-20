@@ -53,8 +53,8 @@ async def test_entering_report_text_only_shows_preview_and_does_not_create_recor
 
     await report_body(message, state, world["session"])
 
-    await state.set_state.assert_awaited_once_with(ReportForm.confirm)
-    await state.update_data.assert_awaited_once()
+    state.set_state.assert_awaited_once_with(ReportForm.confirm)
+    state.update_data.assert_awaited_once()
     assert "پیش‌نمایش گزارش روزانه" in message.answer.call_args.args[0]
 
     markup = message.answer.call_args.kwargs["reply_markup"]
@@ -93,7 +93,7 @@ async def test_student_confirmation_creates_pending_record_but_does_not_publish(
     assert record is not None
     assert record.body == "دانش‌آموز متن گزارش را تأیید کرد."
     assert record.status == RecordStatus.PENDING
-    await state.clear.assert_awaited_once()
+    state.clear.assert_awaited_once()
 
     outbox = (
         await world["session"].scalars(
@@ -263,7 +263,7 @@ async def test_report_edit_returns_to_body_without_creating_a_record(world):
 
     await report_edit(callback, state)
 
-    await state.set_state.assert_awaited_once_with(ReportForm.body)
+    state.set_state.assert_awaited_once_with(ReportForm.body)
     assert "متن اصلاح‌شده گزارش" in callback.message.answer.call_args.args[0]
     assert callback.message.answer.call_args.kwargs["reply_markup"] is not None
     saved = (
@@ -289,7 +289,7 @@ async def test_report_cancel_removes_preview_and_creates_nothing(world):
 
     await report_cancel(callback, state, world["session"])
 
-    await state.clear.assert_awaited_once()
+    state.clear.assert_awaited_once()
     callback.message.delete = AsyncMock()
     saved = (
         await world["session"].scalars(
