@@ -207,7 +207,10 @@ async def poll_open(callback: CallbackQuery, session: AsyncSession) -> None:
     if poll is None or not await user_can_access_class(session, user, poll.class_id):
         await callback.answer("این نظرسنجی برای شما در دسترس نیست.", show_alert=True)
         return
-    if not poll.is_active or (poll.closes_at is not None and poll.closes_at < datetime.now(timezone.utc)):
+    closes_at = poll.closes_at
+    if closes_at is not None and closes_at.tzinfo is None:
+        closes_at = closes_at.replace(tzinfo=timezone.utc)
+    if not poll.is_active or (closes_at is not None and closes_at < datetime.now(timezone.utc)):
         await callback.answer("مهلت این نظرسنجی به پایان رسیده است.", show_alert=True)
         return
     options = await poll_options(session, poll_id)
