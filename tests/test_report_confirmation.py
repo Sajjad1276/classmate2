@@ -246,3 +246,102 @@ async def test_student_homework_stays_private_until_operator_approves(world):
     assert published.action_type is None
     assert "برای بررسی" not in published.text
     assert "تکلیف جدید منتشر شد" in published.text
+
+
+@pytest.mark.asyncio
+async def test_report_edit_returns_to_body_without_creating_a_record(world):
+    from classmate.bot.handlers.wizards import report_edit
+
+    state = AsyncMock()
+    state.get_data.return_value = {
+        "class_id": world["class"].id,
+        "report_body": "پیش‌نویس",
+        "report_owner_telegram_id": world["student"].telegram_id,
+    }
+    callback = _callback(world["student"])
+    callback.data = "rpt:edit"
+
+    await report_edit(callback, state)
+
+    await state.set_state.assert_awaited_once_with(ReportForm.body)
+    assert "متن اصلاح‌شده گزارش" in callback.message.answer.call_args.args[0]
+    assert callback.message.answer.call_args.kwargs["reply_markup"] is not None
+    saved = (
+        await world["session"].scalars(
+            select(DailyReport).where(DailyReport.class_id == world["class"].id)
+        )
+    ).all()
+    assert saved == []
+
+
+@pytest.mark.asyncio
+async def test_report_cancel_removes_preview_and_creates_nothing(world):
+    from classmate.bot.handlers.wizards import report_cancel
+
+    state = AsyncMock()
+    state.get_data.return_value = {
+        "class_id": world["class"].id,
+        "report_body": "متنی که لغو شد",
+        "report_owner_telegram_id": world["student"].telegram_id,
+    }
+    callback = _callback(world["student"])
+    callback.data = "rpt:cancel"
+
+    await report_cancel(callback, state, world["session"])
+
+    await state.clear.assert_awaited_once()
+    callback.message.delete = AsyncMock()
+    saved = (
+        await world["session"].scalars(
+            select(DailyReport).where(DailyReport.class_id == world["class"].id)
+        )
+    ).all()
+    assert saved == []
+    assert "گزارش لغو شد" in callback.message.answer.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_trusted_operator_confirmation_publishes_report_after_click(world):
+    world["class"].group_chat_id = -100555005
+    await world["session"].flush()
+    preview_state = AsyncMock()
+    preview_state.get_data.return_value = {"class_id": world["class"].id}
+    preview_message = _message(world["approver"], "گزارش ثبت‌شده توسط اپراتور")
+
+    await report_body(preview_message, preview_state, world["session"])
+
+    keyboard = preview_message.answer.call_args.kwargs["reply_markup"]
+    confirm_button = keyboard.inline_keyboard[0][0]
+    assert confirm_button.callback_data == "rpt:confirm"
+    assert confirm_button.text == "✅ تأیید و انتشار گزارش"
+    saved_before_confirm = (
+        await world["session"].scalars(
+            select(DailyReport).where(DailyReport.class_id == world["class"].id)
+        )
+    ).all()
+    assert saved_before_confirm == []
+
+    confirm_state = AsyncMock()
+    confirm_state.get_data.return_value = {
+        "class_id": world["class"].id,
+        "report_body": "گزارش ثبت‌شده توسط اپراتور",
+        "report_owner_telegram_id": world["approver"].telegram_id,
+    }
+    callback = _callback(world["approver"])
+    await report_confirm(callback, confirm_state, world["session"])
+
+    record = await world["session"].scalar(
+        select(DailyReport).where(DailyReport.class_id == world["class"].id)
+    )
+    assert record is not None
+    assert record.status == RecordStatus.APPROVED
+    assert record.approved_by == world["approver"].id
+    published = await world["session"].scalar(
+        select(TelegramOutbox).where(
+            TelegramOutbox.entity_type == EntityType.REPORT.value,
+            TelegramOutbox.entity_id == record.id,
+        )
+    )
+    assert published is not None
+    assert published.target_chat_id == -100555005
+    assert "گزارش روزانه منتشر شد" in published.text
