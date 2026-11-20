@@ -62,7 +62,7 @@ alembic upgrade head
 ## Performance and production notes
 
 - Migration `0004` adds composite indexes for memberships, announcements, attendance, polls and reminder delivery.
-- Role and class lists use a short in-process cache to reduce repeated permission queries; membership changes naturally expire within seconds.
+- Authorization checks are evaluated against current active memberships and active class/school state; permission decisions are not kept in a stale in-process cache.
 - Reminder recipient preferences are loaded with one indexed outer join instead of one query per member.
 - Inline navigation edits existing panels where possible, and keyboard removal is silent so the chat stays compact.
 - For production, run behind a process supervisor and prefer Telegram webhook mode when a stable HTTPS endpoint is available; polling remains the safe local-development default.
