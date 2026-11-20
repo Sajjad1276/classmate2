@@ -287,7 +287,7 @@ async def _queue_approved_record_publication(
         target_type="group",
         target_chat_id=class_group.group_chat_id,
         class_id=class_group.id,
-        text="\\n".join(lines),
+        text="\n".join(lines),
         entity_type=entity_type,
         entity_id=record.id,
         expected_record_status=RecordStatus.APPROVED.value,
