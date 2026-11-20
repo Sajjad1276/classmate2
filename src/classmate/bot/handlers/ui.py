@@ -2,7 +2,8 @@
 
 import asyncio
 import logging
-from datetime import date
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from html import escape
 
 from aiogram import F, Router
@@ -35,7 +36,12 @@ from classmate.db.models import (
     User,
 )
 from classmate.domain.dates import jalali_date, jalali_datetime
-from classmate.services.permissions import can_approve, get_class_with_school
+from classmate.services.permissions import (
+    can_approve,
+    get_class_with_school,
+    is_class_manager,
+    user_can_access_class,
+)
 from classmate.services.records import list_exams, list_homework, list_pending_records, list_reports
 from classmate.services.users import ensure_user
 
@@ -74,7 +80,7 @@ async def delete_panel(message: Message) -> None:
         logger.debug("Could not delete previous inline panel", exc_info=True)
 
 
-async def get_user(session: AsyncSession, tg, private: bool = True) -> User:
+async def get_user(session: AsyncSession, tg, private: bool = False) -> User:
     settings = get_settings()
     user = await ensure_user(
         session,
@@ -89,47 +95,47 @@ async def get_user(session: AsyncSession, tg, private: bool = True) -> User:
 
 
 async def role_flags(session: AsyncSession, user: User) -> tuple[bool, bool, bool]:
-    import time
-
-    cached = _ROLE_CACHE.get(user.id)
-    if cached and cached[0] > time.monotonic():
-        return cached[1]
+    if not user.is_active:
+        return False, False, False
     if user.is_platform_admin:
-        result = (True, True, True)
-        _ROLE_CACHE[user.id] = (time.monotonic() + 60, result)
-        return result
+        return True, True, True
+
     school_admin = (
         await session.scalar(
-            select(SchoolMembership.id).where(
+            select(SchoolMembership.id)
+            .join(School, SchoolMembership.school_id == School.id)
+            .where(
                 SchoolMembership.user_id == user.id,
                 SchoolMembership.role == Role.SCHOOL_ADMIN,
                 SchoolMembership.is_active.is_(True),
+                School.is_active.is_(True),
             )
         )
     ) is not None
     roles = set(
         (
             await session.scalars(
-                select(ClassMembership.role).where(
+                select(ClassMembership.role)
+                .join(ClassGroup, ClassMembership.class_id == ClassGroup.id)
+                .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+                .join(School, AcademicYear.school_id == School.id)
+                .where(
                     ClassMembership.user_id == user.id,
                     ClassMembership.is_active.is_(True),
+                    ClassGroup.is_active.is_(True),
+                    School.is_active.is_(True),
                 )
             )
         ).all()
     )
     manager = Role.CLASS_MANAGER in roles or school_admin
     approver = school_admin or manager or Role.TRUSTED_APPROVER in roles
-    result = (school_admin, manager, approver)
-    _ROLE_CACHE[user.id] = (time.monotonic() + 60, result)
-    return result
+    return school_admin, manager, approver
 
 
 async def classes_for_user(session: AsyncSession, user: User) -> list[tuple[int, str, str]]:
-    import time
-
-    cached = _CLASS_CACHE.get(user.id)
-    if cached and cached[0] > time.monotonic():
-        return cached[1]
+    if not user.is_active:
+        return []
     query = (
         select(ClassGroup, School)
         .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
@@ -149,6 +155,7 @@ async def classes_for_user(session: AsyncSession, user: User) -> list[tuple[int,
         )
         .where(
             ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
             or_(
                 ClassMembership.id.is_not(None),
                 SchoolMembership.id.is_not(None),
@@ -158,9 +165,7 @@ async def classes_for_user(session: AsyncSession, user: User) -> list[tuple[int,
         .distinct()
         .order_by(ClassGroup.name)
     )
-    result = [(c.id, c.name, s.name) for c, s in (await session.execute(query)).all()]
-    _CLASS_CACHE[user.id] = (time.monotonic() + 30, result)
-    return result
+    return [(item.id, item.name, school.name) for item, school in (await session.execute(query)).all()]
 
 
 async def menu_for(session: AsyncSession, user: User):
@@ -197,11 +202,15 @@ async def run_view(
     *,
     close_reply_keyboard: bool = True,
 ) -> None:
+    if not await user_can_access_class(session, user, class_id):
+        await _education_result(target, "دسترسی شما به این کلاس فعال نیست.", close_reply_keyboard)
+        return
     ctx = await get_class_with_school(session, class_id)
     if ctx is None:
         await _education_result(target, "کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.", close_reply_keyboard)
         return
     class_group, _, school = ctx
+    local_today = datetime.now(ZoneInfo(school.timezone)).date()
 
     if action == "homework":
         rows = await list_homework(session, class_id)
@@ -231,12 +240,12 @@ async def run_view(
         await _education_result(target, "\n".join(lines), close_reply_keyboard)
 
     elif action == "today":
-        reports = await list_reports(session, class_id, date.today())
+        reports = await list_reports(session, class_id, local_today)
         if not reports:
             await _education_result(
                 target,
                 f"📋 <b>{escape(class_group.name)}</b>\n"
-                f"گزارشی برای امروز ({jalali_date(date.today())}) نیست.",
+                f"گزارشی برای امروز ({jalali_date(local_today)}) نیست.",
                 close_reply_keyboard,
             )
             return
@@ -292,7 +301,7 @@ async def run_view(
 @router.message(F.text == "❌ انصراف")
 async def btn_cancel(message: Message, state: FSMContext, session: AsyncSession) -> None:
     await state.clear()
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     await message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
 
 
@@ -300,7 +309,7 @@ async def btn_cancel(message: Message, state: FSMContext, session: AsyncSession)
 async def btn_classes(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = await classes_for_user(session, user)
     if not classes:
         await message.answer("هنوز عضو کلاسی نیستید. از «🔑 ورود با کد دعوت» استفاده کنید.")
@@ -315,7 +324,7 @@ async def btn_classes(message: Message, session: AsyncSession) -> None:
 async def btn_hw(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     await ask_class(message, session, "homework", user)
 
 
@@ -323,7 +332,7 @@ async def btn_hw(message: Message, session: AsyncSession) -> None:
 async def btn_ex(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     await ask_class(message, session, "exams", user)
 
 
@@ -331,7 +340,7 @@ async def btn_ex(message: Message, session: AsyncSession) -> None:
 async def btn_week(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     await ask_class(message, session, "week", user)
 
 
@@ -339,7 +348,7 @@ async def btn_week(message: Message, session: AsyncSession) -> None:
 async def btn_today(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     await ask_class(message, session, "today", user)
 
 
@@ -347,7 +356,7 @@ async def btn_today(message: Message, session: AsyncSession) -> None:
 async def btn_pending(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     await ask_class(message, session, "pending", user)
 
 
@@ -373,7 +382,7 @@ async def btn_new(message: Message) -> None:
 async def btn_manage(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     is_admin, is_manager, is_approver = await role_flags(session, user)
     await render_panel(
         message,
@@ -410,7 +419,7 @@ async def btn_join(message: Message, state: FSMContext) -> None:
 
 @router.message(F.text.in_({"❓ راهنمای استفاده", "راهنما"}))
 async def btn_help(message: Message, session: AsyncSession) -> None:
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     await message.answer(
         "<b>راهنمای کوتاه ClassMate 2</b>\n\n"
         "همه امکانات از دکمه‌های پایین و پنل‌های اینلاین در دسترس است.\n\n"
@@ -447,7 +456,10 @@ async def btn_help(message: Message, session: AsyncSession) -> None:
 async def cb_category(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     action = callback.data.split(":", 1)[1]
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    if not user.is_active:
+        await callback.answer("حساب کاربری شما غیرفعال است.", show_alert=True)
+        return
     if action in {"homework", "exams", "week", "today", "content", "reviews", "evaluation", "pending"}:
         mapped = {"reviews": "review_submissions", "content": "content"}.get(action, action)
         classes = await classes_for_user(session, user)
@@ -465,12 +477,19 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
         else:
             await ask_class(callback.message, session, mapped, user)
     elif action == "class_manage":
+        _school_admin, manager, _approver = await role_flags(session, user)
+        if not manager:
+            await callback.answer("دسترسی مدیریت کلاس ندارید.", show_alert=True)
+            return
         await render_panel(
             callback.message,
             "⚙️ <b>مدیریت کلاس</b>\nعملیات موردنظر را انتخاب کنید:",
             manage_class_menu(),
         )
     elif action == "admin":
+        if not user.is_platform_admin:
+            await callback.answer("دسترسی مدیر سامانه لازم است.", show_alert=True)
+            return
         await render_panel(
             callback.message,
             "🏛 <b>مدیریت سامانه</b>\nعملیات موردنظر را انتخاب کنید:",
@@ -497,7 +516,7 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
 async def cb_home(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await state.clear()
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     await callback.message.answer(
         "🏠 <b>منوی اصلی</b>\n\n"
         "گزینه موردنظر خود را انتخاب کنید:",
@@ -510,8 +529,22 @@ async def cb_home(callback: CallbackQuery, state: FSMContext, session: AsyncSess
 async def cb_pick(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     _, action, id_s = callback.data.split(":", 2)
     class_id = int(id_s)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     await delete_panel(callback.message)
+    if not await user_can_access_class(session, user, class_id):
+        await callback.answer("دسترسی شما به این کلاس فعال نیست.", show_alert=True)
+        return
+
+    manager_actions = {
+        "content", "announcement", "evaluation", "review_submissions", "submissions",
+        "hw", "exam", "report", "codes", "subject", "timetable", "group",
+    }
+    if action in manager_actions and not await is_class_manager(session, user, class_id):
+        await callback.answer("این عملیات فقط برای مدیر کلاس مجاز است.", show_alert=True)
+        return
+    if action == "pending" and not await can_approve(session, user, class_id):
+        await callback.answer("شما اجازه مشاهده موارد در انتظار را ندارید.", show_alert=True)
+        return
 
     # View actions
     if action in {"homework", "exams", "today", "week", "pending"}:
@@ -608,7 +641,7 @@ async def cb_pick(callback: CallbackQuery, session: AsyncSession, state: FSMCont
 @router.callback_query(F.data.startswith("pickpage:"))
 async def cb_pickpage(callback: CallbackQuery, session: AsyncSession) -> None:
     _, action, page_s = callback.data.split(":", 2)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = await classes_for_user(session, user)
     await callback.message.edit_reply_markup(
         reply_markup=class_picker(classes, action=action, page=int(page_s))
