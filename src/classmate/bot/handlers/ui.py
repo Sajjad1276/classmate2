@@ -228,11 +228,8 @@ async def render_pending_for_class(
     for kind, record in pending:
         icon, label = type_labels[kind]
         title = getattr(record, "title", None) or "گزارش روزانه"
-        creator = await session.get(User, record.created_by)
-        creator_name = creator.full_name if creator is not None else "کاربر نامشخص"
         lines.append(
-            f"\n{icon} <b>{escape(label)} #{record.id}</b> — {escape(str(title)[:90])}"
-            f"\nثبت‌کننده: {escape(creator_name)}"
+            f"\\n{icon} <b>{escape(label)} #{record.id}</b> — {escape(str(title)[:46])}"
         )
         buttons.append(
             [
