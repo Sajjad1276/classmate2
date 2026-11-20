@@ -7,10 +7,11 @@ import pytest
 
 from classmate.bot.handlers import setup_routers
 from classmate.bot.handlers.group import cb_group_new, cb_group_view
-from classmate.bot.handlers.ui import btn_report, render_pending_for_class, run_view
+from classmate.bot.handlers.ui import btn_new, btn_report, render_pending_for_class, run_view
 from classmate.bot.handlers.wizards import start_report_after_class
 from classmate.bot.keyboards import admin_menu, group_panel, main_menu, management_menu
-from classmate.bot.states import ReportForm
+from classmate.bot.handlers.phase1 import toggle_preference
+from classmate.bot.handlers.phase2 import poll_open, poll_question
 
 
 def _telegram_user(user):
@@ -202,3 +203,65 @@ async def test_regular_student_can_start_daily_report_from_private_menu(world):
     state.update_data.assert_awaited_once_with(class_id=world["class"].id)
     state.set_state.assert_awaited_once_with(ReportForm.body)
     message.answer.assert_awaited_once()
+
+
+
+@pytest.mark.asyncio
+async def test_regular_student_cannot_open_manager_only_new_record_menu(world):
+    message = SimpleNamespace(
+        chat=SimpleNamespace(type="private"),
+        from_user=_telegram_user(world["student"]),
+        answer=AsyncMock(),
+    )
+
+    await btn_new(message, world["session"])
+
+    message.answer.assert_awaited_once()
+    assert "فقط برای مدیر کلاس" in message.answer.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_phase_one_private_callback_is_rejected_in_a_group():
+    callback = SimpleNamespace(
+        data="p1:toggle:hw:123",
+        message=SimpleNamespace(chat=SimpleNamespace(type="supergroup")),
+        answer=AsyncMock(),
+    )
+
+    await toggle_preference(callback, session=AsyncMock())
+
+    callback.answer.assert_awaited_once()
+    assert callback.answer.await_args.kwargs["show_alert"] is True
+    assert "خصوصی" in callback.answer.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_phase_two_poll_callback_is_rejected_in_a_group():
+    callback = SimpleNamespace(
+        data="p2:poll:123",
+        message=SimpleNamespace(chat=SimpleNamespace(type="group")),
+        answer=AsyncMock(),
+    )
+
+    await poll_open(callback, session=AsyncMock())
+
+    callback.answer.assert_awaited_once()
+    assert callback.answer.await_args.kwargs["show_alert"] is True
+    assert "خصوصی" in callback.answer.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_phase_two_private_fsm_is_cleared_if_used_in_a_group():
+    message = SimpleNamespace(
+        chat=SimpleNamespace(type="supergroup"),
+        text="سؤال ناخواسته",
+        answer=AsyncMock(),
+    )
+    state = AsyncMock()
+
+    await poll_question(message, state, AsyncMock())
+
+    state.clear.assert_awaited_once()
+    state.update_data.assert_not_awaited()
+    state.set_state.assert_not_awaited()
+    assert "خصوصی" in message.answer.await_args.args[0]
