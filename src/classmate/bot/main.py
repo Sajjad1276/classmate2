@@ -6,6 +6,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
+from classmate.bot.command_menu import setup_default_commands
 from classmate.bot.handlers import setup_routers
 from classmate.bot.middlewares import DbSessionMiddleware
 from classmate.core.config import get_settings
@@ -15,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 def create_storage():
-    """Prefer Redis when available, fall back to MemoryStorage."""
     settings = get_settings()
     if settings.redis_url:
         try:
@@ -51,13 +51,11 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
 
+    await setup_default_commands(bot)
+
     storage = create_storage()
     dp = Dispatcher(storage=storage)
-
-    # Global middleware — injects session into every handler
     dp.update.middleware(DbSessionMiddleware())
-
-    # Domain routers
     dp.include_router(setup_routers())
 
     logger.info("Starting ClassMate 2 bot")
