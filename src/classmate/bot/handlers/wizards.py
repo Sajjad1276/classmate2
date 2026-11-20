@@ -2,8 +2,8 @@
 
 import logging
 from datetime import date, datetime, time as dtime, timezone
-from zoneinfo import ZoneInfo
 from html import escape
+from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -22,7 +22,7 @@ from classmate.bot.keyboards import (
     skip_or_cancel_kb,
     subject_picker,
 )
-from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for, role_flags
+from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for
 from classmate.bot.states import (
     ClassForm,
     ConnectForm,
@@ -48,8 +48,13 @@ from classmate.db.models import (
 from classmate.domain.dates import parse_school_date, parse_school_datetime
 from classmate.services.permissions import (
     activate_student_membership,
-    user_can_access_class,
     code_expiry,
+    get_class_with_school,
+    hash_code,
+    is_class_manager,
+    is_school_admin,
+    make_code,
+    user_can_access_class,
     get_class_with_school,
     hash_code,
     is_class_manager,
