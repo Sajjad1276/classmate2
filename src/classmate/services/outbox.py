@@ -97,15 +97,21 @@ async def enqueue_telegram_message(
     }
     dialect = session.get_bind().dialect.name
     if dialect == "postgresql":
-        statement = pg_insert(TelegramOutbox).values(**values).on_conflict_do_nothing(
-            index_elements=[TelegramOutbox.idempotency_key]
+        await session.execute(
+            pg_insert(TelegramOutbox)
+            .values(**values)
+            .on_conflict_do_nothing(
+                index_elements=[TelegramOutbox.idempotency_key]
+            )
         )
-        await session.execute(statement)
     elif dialect == "sqlite":
-        statement = sqlite_insert(TelegramOutbox).values(**values).on_conflict_do_nothing(
-            index_elements=[TelegramOutbox.idempotency_key]
+        await session.execute(
+            sqlite_insert(TelegramOutbox)
+            .values(**values)
+            .on_conflict_do_nothing(
+                index_elements=[TelegramOutbox.idempotency_key]
+            )
         )
-        await session.execute(statement)
     else:
         existing = await session.scalar(
             select(TelegramOutbox).where(
