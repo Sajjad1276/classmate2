@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for, render_panel
 from classmate.bot.keyboards import cancel_kb, class_picker
-from classmate.bot.states import AnnouncementForm, EditRecordForm, SearchForm
+from classmate.bot.states import AnnouncementForm, EditRecordForm, JoinForm, SearchForm
 from classmate.domain.dates import jalali_date, jalali_datetime, persian_weekday
 from classmate.core.enums import RecordStatus
 from classmate.db.models import ClassGroup, DailyReport, Exam, Homework, Subject
@@ -37,6 +37,14 @@ def dashboard_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="p1:announcements")],
         [InlineKeyboardButton(text="🔔 تنظیم اعلان‌ها", callback_data="p1:preferences")],
         [InlineKeyboardButton(text="🔄 به‌روزرسانی داشبورد", callback_data="p1:dashboard")],
+        [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="ui:home", style="danger")],
+    ])
+
+
+def dashboard_empty_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔑 ورود با کد دعوت", callback_data="p1:join", style="success")],
+        [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="ui:home", style="danger")],
     ])
 
 
@@ -50,8 +58,22 @@ def announcement_kb(can_create: bool = False) -> InlineKeyboardMarkup:
 
 async def _render_dashboard(message: Message, session: AsyncSession, user) -> None:
     classes = await classes_for_user(session, user)
+    if not classes:
+        await render_panel(
+            message,
+            "🏠 <b>داشبورد من</b>\n\n"
+            "هنوز عضو هیچ کلاسی نیستید. برای دیدن تکالیف، امتحانات و برنامه، ابتدا با کد دعوت وارد یک کلاس شوید.",
+            dashboard_empty_kb(),
+        )
+        return
     data = await dashboard_data(session, [row[0] for row in classes], date.today())
-    lines = ["🏠 <b>داشبورد ClassMate</b>", "", "خلاصه فعالیت‌های آموزشی شما در روزهای پیش‌رو:"]
+    lines = [
+        "🏠 <b>داشبورد من</b>",
+        f"{jalali_date(date.today())}  ·  {len(classes)} کلاس فعال",
+        "",
+        f"📚 {len(data['homework'])} تکلیف  ·  📝 {len(data['exams'])} امتحان  ·  📣 {len(data['announcements'])} اطلاعیه",
+        "فعالیت‌های مهم هفت روز آینده:",
+    ]
     if data["homework"]:
         lines.append(f"\n📚 <b>تکالیف نزدیک</b> ({len(data['homework'])})")
         for hw, subject, cls in data["homework"][:5]:
@@ -69,6 +91,8 @@ async def _render_dashboard(message: Message, session: AsyncSession, user) -> No
         lines.append(f"\n📣 <b>آخرین اطلاعیه‌ها</b> ({len(data['announcements'])})")
         for item, cls in data["announcements"][:3]:
             lines.append(f"• {escape(item.title)} — {escape(cls.name)}")
+    else:
+        lines.append("\n📣 اطلاعیه جدیدی برای کلاس‌های شما وجود ندارد.")
     await render_panel(message, "\n".join(lines), dashboard_kb())
 
 
@@ -94,7 +118,11 @@ async def calendar_entry(callback: CallbackQuery, session: AsyncSession) -> None
     classes = await classes_for_user(session, user)
     await delete_panel(callback.message)
     if not classes:
-        await callback.message.answer("هنوز عضو کلاسی نیستید.")
+        await render_panel(
+            callback.message,
+            "هنوز عضو کلاسی نیستید. برای مشاهده تقویم، ابتدا با کد دعوت وارد یک کلاس شوید.",
+            dashboard_empty_kb(),
+        )
     elif len(classes) == 1:
         await _render_calendar(callback.message, session, classes[0][0], classes[0][1])
     else:
@@ -106,13 +134,25 @@ async def calendar_entry(callback: CallbackQuery, session: AsyncSession) -> None
     await callback.answer()
 
 
+@router.callback_query(F.data == "p1:join")
+async def dashboard_join(callback: CallbackQuery, state: FSMContext) -> None:
+    await delete_panel(callback.message)
+    await state.set_state(JoinForm.code)
+    await callback.message.answer("🔑 کد دعوت کلاس را ارسال کنید:", reply_markup=cancel_kb())
+    await callback.answer()
+
+
 @router.callback_query(F.data == "p1:preferences")
 async def preferences_entry(callback: CallbackQuery, session: AsyncSession) -> None:
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     await delete_panel(callback.message)
     if not classes:
-        await callback.message.answer("برای تنظیم اعلان‌ها ابتدا عضو یک کلاس شوید.")
+        await render_panel(
+            callback.message,
+            "برای تنظیم اعلان‌ها ابتدا عضو یک کلاس شوید.",
+            dashboard_empty_kb(),
+        )
     elif len(classes) == 1:
         await _render_preferences(callback.message, session, user, classes[0][0], classes[0][1])
     else:
