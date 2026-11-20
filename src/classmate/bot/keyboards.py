@@ -31,7 +31,7 @@ def main_menu(
 
 def cancel_kb(*, selective: bool = False) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="❌ انصراف")]],
+        keyboard=[[KeyboardButton(text="❌ انصراف", style="danger")]],
         resize_keyboard=True,
         selective=selective,
     )
