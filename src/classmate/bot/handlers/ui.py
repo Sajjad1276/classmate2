@@ -180,6 +180,9 @@ async def render_pending_for_class(
     close_reply_keyboard: bool = True,
 ) -> None:
     """Render a private, actionable review queue for one class."""
+    if target.chat.type != "private":
+        await target.answer("صف بررسی فقط از پنل خصوصی ربات در دسترس است.")
+        return
     if not await can_approve(session, user, class_id):
         await _education_result(
             target, "شما اجازه بررسی اطلاعات این کلاس را ندارید.", close_reply_keyboard
@@ -258,6 +261,9 @@ async def show_pending_for_user(
     user: User,
 ) -> None:
     """Show only classes where the current user has active review authority."""
+    if target.chat.type != "private":
+        await target.answer("صف بررسی فقط از پنل خصوصی ربات در دسترس است.")
+        return
     classes = [
         item
         for item in await classes_for_user(session, user)
@@ -390,6 +396,9 @@ async def run_view(
         await _education_result(target, "\n".join(lines), close_reply_keyboard)
 
     elif action == "pending":
+        if target.chat.type != "private":
+            await target.answer("صف بررسی فقط از پنل خصوصی ربات در دسترس است.")
+            return
         await render_pending_for_class(
             target, session, user, class_id, close_reply_keyboard=close_reply_keyboard
         )
