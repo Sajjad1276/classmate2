@@ -8,7 +8,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.core.enums import RecordStatus
 from classmate.db.models import AcademicYear, Attendance, ClassGroup, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, School, Subject, User
-from classmate.services.permissions import user_can_access_class
+from classmate.services.permissions import is_class_manager, user_can_access_class
 
 
 
@@ -129,6 +129,107 @@ async def student_attendance(
             )
         ).scalars().all()
     )
+
+
+
+
+async def save_attendance(
+    session: AsyncSession,
+    *,
+    class_id: int,
+    student_id: int,
+    attendance_date,
+    status: str,
+    marked_by: int,
+    note: str | None = None,
+) -> Attendance:
+    """Atomically insert or update one attendance mark per student and date."""
+    if status not in {"present", "absent", "late", "excused"}:
+        raise ValueError("وضعیت حضور‌وغیاب معتبر نیست.")
+
+    student = await session.get(User, student_id)
+    if (
+        student is None
+        or not student.is_active
+        or not await user_can_access_class(session, student, class_id)
+        or await session.scalar(
+            select(ClassMembership.id).where(
+                ClassMembership.class_id == class_id,
+                ClassMembership.user_id == student_id,
+                ClassMembership.is_active.is_(True),
+            )
+        ) is None
+    ):
+        raise PermissionError("دانش‌آموز عضو فعال این کلاس نیست.")
+
+    manager = await session.get(User, marked_by)
+    if manager is None or not await is_class_manager(session, manager, class_id):
+        raise PermissionError("فقط مدیر کلاس می‌تواند حضور‌وغیاب ثبت کند.")
+
+    values = {
+        "class_id": class_id,
+        "student_id": student_id,
+        "attendance_date": attendance_date,
+        "status": status,
+        "note": note,
+        "marked_by": marked_by,
+    }
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        statement = (
+            pg_insert(Attendance)
+            .values(**values)
+            .on_conflict_do_update(
+                index_elements=[
+                    Attendance.class_id,
+                    Attendance.student_id,
+                    Attendance.attendance_date,
+                ],
+                set_={"status": status, "note": note, "marked_by": marked_by},
+            )
+            .returning(Attendance.id)
+        )
+        attendance_id = await session.scalar(statement)
+    elif dialect == "sqlite":
+        statement = (
+            sqlite_insert(Attendance)
+            .values(**values)
+            .on_conflict_do_update(
+                index_elements=[
+                    Attendance.class_id,
+                    Attendance.student_id,
+                    Attendance.attendance_date,
+                ],
+                set_={"status": status, "note": note, "marked_by": marked_by},
+            )
+            .returning(Attendance.id)
+        )
+        attendance_id = await session.scalar(statement)
+    else:
+        existing = await session.scalar(
+            select(Attendance)
+            .where(
+                Attendance.class_id == class_id,
+                Attendance.student_id == student_id,
+                Attendance.attendance_date == attendance_date,
+            )
+            .with_for_update()
+        )
+        if existing is None:
+            existing = Attendance(**values)
+            session.add(existing)
+            await session.flush()
+        else:
+            existing.status = status
+            existing.note = note
+            existing.marked_by = marked_by
+        attendance_id = existing.id
+
+    await session.flush()
+    attendance = await session.get(Attendance, attendance_id)
+    if attendance is None:
+        raise RuntimeError("ثبت حضور‌وغیاب انجام نشد.")
+    return attendance
 
 
 async def active_polls(session: AsyncSession, class_ids: list[int]):
