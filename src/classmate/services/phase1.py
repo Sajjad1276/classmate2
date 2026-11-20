@@ -191,7 +191,7 @@ async def archive_record(session: AsyncSession, entity_type: str, entity_id: int
              EntityType.REPORT.value: DailyReport}.get(entity_type)
     if model is None:
         return False, "نوع اطلاعات معتبر نیست."
-    record = await session.get(model, entity_id)
+    record = await session.get(model, entity_id, with_for_update=True)
     if record is None:
         return False, "اطلاعات موردنظر پیدا نشد."
     if not await is_class_manager(session, actor, record.class_id):
@@ -230,7 +230,7 @@ async def update_record(
              EntityType.REPORT.value: DailyReport}.get(entity_type)
     if model is None:
         return False, "نوع اطلاعات معتبر نیست."
-    record = await session.get(model, entity_id)
+    record = await session.get(model, entity_id, with_for_update=True)
     if record is None:
         return False, "اطلاعات موردنظر پیدا نشد."
     if not await is_class_manager(session, actor, record.class_id):
