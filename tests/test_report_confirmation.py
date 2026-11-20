@@ -55,9 +55,10 @@ async def test_entering_report_text_only_shows_preview_and_does_not_create_recor
 
     state.set_state.assert_awaited_once_with(ReportForm.confirm)
     state.update_data.assert_awaited_once()
-    assert "پیش‌نمایش گزارش روزانه" in message.answer.call_args.args[0]
+    preview_call = message.answer.call_args_list[0]
+    assert "پیش‌نمایش گزارش روزانه" in preview_call.args[0]
 
-    markup = message.answer.call_args.kwargs["reply_markup"]
+    markup = preview_call.kwargs["reply_markup"]
     callbacks = {
         button.callback_data
         for row in markup.inline_keyboard
@@ -310,7 +311,7 @@ async def test_trusted_operator_confirmation_publishes_report_after_click(world)
 
     await report_body(preview_message, preview_state, world["session"])
 
-    keyboard = preview_message.answer.call_args.kwargs["reply_markup"]
+    keyboard = preview_message.answer.call_args_list[0].kwargs["reply_markup"]
     confirm_button = keyboard.inline_keyboard[0][0]
     assert confirm_button.callback_data == "rpt:confirm"
     assert confirm_button.text == "✅ تأیید و انتشار گزارش"
