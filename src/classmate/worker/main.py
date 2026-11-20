@@ -11,7 +11,7 @@ from sqlalchemy import select, update
 from classmate.core.config import get_settings
 from classmate.core.enums import EntityType, OutboxStatus, RecordStatus, ReminderStatus
 from classmate.core.logging import configure_logging
-from classmate.db.models import AcademicYear, ClassGroup, ClassMembership, Exam, Homework, ReminderJob, School, TelegramOutbox, User
+from classmate.db.models import AcademicYear, ClassGroup, ClassMembership, Exam, DailyReport, Homework, ReminderJob, School, TelegramOutbox, User
 from classmate.db.session import SessionFactory
 
 logger = logging.getLogger(__name__)
@@ -154,7 +154,23 @@ async def process_once(bot: Bot) -> int:
 
 
 async def _outbox_is_deliverable(session, row: TelegramOutbox) -> bool:
-    """Revalidate a queued recipient and class immediately before Telegram I/O."""
+    """Revalidate the business record and recipient immediately before Telegram I/O."""
+    if row.entity_type is not None:
+        model = {
+            EntityType.HOMEWORK.value: Homework,
+            EntityType.EXAM.value: Exam,
+            EntityType.REPORT.value: DailyReport,
+        }.get(row.entity_type)
+        if model is None or row.entity_id is None:
+            return False
+        record = await session.get(model, row.entity_id)
+        if (
+            record is None
+            or record.class_id != row.class_id
+            or str(record.status) != row.expected_record_status
+        ):
+            return False
+
     if row.target_type == "group":
         result = await session.execute(
             select(ClassGroup.id)
