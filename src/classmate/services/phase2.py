@@ -1,6 +1,7 @@
 """Phase-two learning workflow services."""
 
 from datetime import datetime, timezone
+from math import isfinite
 from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -8,6 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.core.enums import RecordStatus
 from classmate.db.models import AcademicYear, Attendance, ClassGroup, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, School, Subject, User
 from classmate.services.permissions import user_can_access_class
+
+
+
+
+def validate_grade_values(score: float, max_score: float) -> None:
+    """Reject non-finite values before persisting a numeric grade."""
+    if not isfinite(score) or not isfinite(max_score):
+        raise ValueError("نمره و سقف نمره باید عدد محدود و معتبر باشند.")
+    if score < 0 or max_score <= 0 or score > max_score:
+        raise ValueError("مقدار نمره معتبر نیست.")
 
 
 async def approved_homeworks_for_student(session: AsyncSession, class_id: int):
