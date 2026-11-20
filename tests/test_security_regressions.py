@@ -504,7 +504,7 @@ async def test_school_creation_rejects_unknown_timezone(world, monkeypatch):
     from classmate.bot.handlers import onboarding
 
     async def admin_user(*args, **kwargs):
-        return SimpleNamespace(id=world["manager"].id, is_platform_admin=True)
+        return SimpleNamespace(id=world["manager"].id, is_platform_admin=True, is_active=True)
 
     monkeypatch.setattr(onboarding, "_user", admin_user)
     replies = []
@@ -611,3 +611,13 @@ async def test_workers_reclaim_processing_rows_with_missing_lease(world):
     assert outbox.id in claimed_outbox_ids
     assert outbox.status == OutboxStatus.PROCESSING
     assert outbox.locked_at is not None
+
+
+
+@pytest.mark.asyncio
+async def test_student_enrollment_rejects_inactive_user(world):
+    world["student"].is_active = False
+    with pytest.raises(PermissionError, match="فعال نیست"):
+        await activate_student_membership(
+            world["session"], world["class"].id, world["student"].id
+        )
