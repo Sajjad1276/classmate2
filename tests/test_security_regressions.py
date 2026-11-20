@@ -525,3 +525,89 @@ async def test_school_creation_rejects_unknown_timezone(world, monkeypatch):
     assert await world["session"].scalar(
         select(School.id).where(School.name == "مدرسه آزمایشی")
     ) is None
+
+
+
+@pytest.mark.asyncio
+async def test_reminder_worker_cancels_delivery_for_inactive_school(world):
+    from classmate.core.enums import ReminderStatus
+    from classmate.db.models import ReminderJob
+    from classmate.services.records import create_homework
+    from classmate.worker.main import _job_is_deliverable
+
+    session = world["session"]
+    homework = await create_homework(
+        session,
+        world["class"].id,
+        world["subject"],
+        "تکلیف یادآوری",
+        "شرح",
+        date.today() + timedelta(days=1),
+        world["student"].id,
+    )
+    homework.status = RecordStatus.APPROVED
+    world["class"].group_chat_id = -1001234567011
+    session.add(
+        ReminderJob(
+            class_id=world["class"].id,
+            entity_type="homework",
+            entity_id=homework.id,
+            target_type="group",
+            target_id=world["class"].group_chat_id,
+            message_text="یادآوری",
+            scheduled_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+            status=ReminderStatus.PENDING,
+            dedupe_key="inactive-school-reminder",
+        )
+    )
+    await session.flush()
+    job = await session.scalar(
+        select(ReminderJob).where(
+            ReminderJob.dedupe_key == "inactive-school-reminder"
+        )
+    )
+
+    world["school"].is_active = False
+    assert await _job_is_deliverable(session, job) is False
+
+
+@pytest.mark.asyncio
+async def test_workers_reclaim_processing_rows_with_missing_lease(world):
+    from classmate.worker.main import _claim_outbox_ids, claim_jobs
+
+    session = world["session"]
+    now = datetime.now(timezone.utc)
+    reminder = ReminderJob(
+        class_id=world["class"].id,
+        entity_type="homework",
+        entity_id=1,
+        target_type="group",
+        target_id=-1001234567012,
+        message_text="یادآوری",
+        scheduled_at=now - timedelta(minutes=1),
+        status=ReminderStatus.PROCESSING,
+        locked_at=None,
+        dedupe_key="orphaned-reminder-lease",
+    )
+    outbox = TelegramOutbox(
+        target_type="group",
+        target_chat_id=-1001234567012,
+        class_id=world["class"].id,
+        text="پیام صف",
+        scheduled_at=now - timedelta(minutes=1),
+        status=OutboxStatus.PROCESSING,
+        locked_at=None,
+        idempotency_key="orphaned-outbox-lease",
+    )
+    session.add_all([reminder, outbox])
+    await session.flush()
+
+    claimed_reminders = await claim_jobs(session)
+    claimed_outbox_ids = await _claim_outbox_ids(session)
+
+    assert reminder in claimed_reminders
+    assert reminder.status == ReminderStatus.PROCESSING
+    assert reminder.locked_at is not None
+    assert outbox.id in claimed_outbox_ids
+    assert outbox.status == OutboxStatus.PROCESSING
+    assert outbox.locked_at is not None
