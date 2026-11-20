@@ -20,6 +20,7 @@ class ExamForm(StatesGroup):
 class ReportForm(StatesGroup):
     class_id = State()
     body = State()
+    confirm = State()
     title = State()
 
 
