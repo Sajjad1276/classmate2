@@ -3,10 +3,10 @@
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.core.enums import EntityType, RecordStatus
+from classmate.core.enums import EntityType, OutboxStatus, RecordStatus
 from classmate.db.models import (
     AcademicYear,
     Announcement,
@@ -17,6 +17,7 @@ from classmate.db.models import (
     NotificationPreference,
     School,
     Subject,
+    TelegramOutbox,
     TimetableEntry,
     User,
 )
@@ -198,6 +199,17 @@ async def archive_record(session: AsyncSession, entity_type: str, entity_id: int
     if record.status == RecordStatus.CANCELLED:
         return False, "این اطلاعات قبلاً آرشیو شده است."
     record.status = RecordStatus.CANCELLED
+    await session.execute(
+        update(TelegramOutbox)
+        .where(
+            TelegramOutbox.entity_type == entity_type,
+            TelegramOutbox.entity_id == entity_id,
+            TelegramOutbox.status.in_(
+                [OutboxStatus.PENDING, OutboxStatus.RETRY, OutboxStatus.PROCESSING]
+            ),
+        )
+        .values(status=OutboxStatus.CANCELLED, locked_at=None)
+    )
     if entity_type in {EntityType.HOMEWORK.value, EntityType.EXAM.value}:
         from classmate.services.records import set_reminders_cancelled
 
