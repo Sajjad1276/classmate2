@@ -332,6 +332,7 @@ async def issue_codes(message, session, user, class_id: int) -> None:
     cls.group_link_code_expires_at = code_expiry(30)
     cls.member_join_code_hash = hash_code(join_code)
     cls.member_join_code_expires_at = code_expiry(60 * 24 * 7)
+    await session.commit()
     await message.answer(
         f"کدهای <b>{escape(cls.name)}</b>:\n\n"
         f"🔗 کد اتصال گروه (اعتبار: ۳۰ دقیقه):\n<code>{group_code}</code>\n\n"
@@ -490,6 +491,10 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
         await message.answer("دسترسی شما به این کلاس فعال نیست.", reply_markup=await menu_for(session, user))
         return
     subject = await session.get(Subject, data["subject_id"])
+    if subject is None:
+        await state.clear()
+        await message.answer("درس انتخاب‌شده معتبر نیست.", reply_markup=await menu_for(session, user))
+        return
     record = await create_exam(
         session,
         data["class_id"],
@@ -694,7 +699,10 @@ async def group_connect_code(message: Message, session: AsyncSession) -> None:
     if not await is_class_manager(session, user, cls.id):
         await message.answer("فقط مدیر همین کلاس می‌تواند کد اتصال را فعال کند.")
         return
-    if cls.group_link_code_expires_at and cls.group_link_code_expires_at < datetime.now(timezone.utc):
+    expires_at = cls.group_link_code_expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at is not None and expires_at < datetime.now(timezone.utc):
         await message.answer("کد اتصال منقضی شده است. لطفاً از مدیر کلاس کد جدید دریافت کنید.")
         return
 
