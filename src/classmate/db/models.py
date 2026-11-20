@@ -231,6 +231,92 @@ class Exam(TimestampMixin, Base):
     subject: Mapped["Subject"] = relationship()
 
 
+class HomeworkSubmission(TimestampMixin, Base):
+    __tablename__ = "homework_submissions"
+    __table_args__ = (
+        UniqueConstraint("homework_id", "student_id", name="uq_homework_student_submission"),
+        Index("ix_submission_student_status", "student_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    homework_id: Mapped[int] = mapped_column(ForeignKey("homeworks.id", ondelete="CASCADE"), index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str | None] = mapped_column(Text)
+    file_id: Mapped[str | None] = mapped_column(String(255))
+    file_type: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(24), default="submitted", nullable=False)
+    feedback: Mapped[str | None] = mapped_column(Text)
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Grade(TimestampMixin, Base):
+    __tablename__ = "grades"
+    __table_args__ = (
+        Index("ix_grade_student_created", "student_id", "created_at"),
+        Index("ix_grade_class_subject", "class_id", "subject_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id"), index=True)
+    source_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    source_id: Mapped[int | None] = mapped_column(Integer)
+    score: Mapped[float] = mapped_column()
+    max_score: Mapped[float] = mapped_column(default=20.0, nullable=False)
+    feedback: Mapped[str | None] = mapped_column(Text)
+    graded_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+
+
+class Attendance(TimestampMixin, Base):
+    __tablename__ = "attendance"
+    __table_args__ = (
+        UniqueConstraint("class_id", "student_id", "attendance_date", name="uq_attendance_student_day"),
+        Index("ix_attendance_class_date", "class_id", "attendance_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    attendance_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text)
+    marked_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+
+
+class Poll(TimestampMixin, Base):
+    __tablename__ = "polls"
+    __table_args__ = (Index("ix_poll_class_active", "class_id", "is_active"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), default="poll", nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    closes_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class PollOption(Base):
+    __tablename__ = "poll_options"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    poll_id: Mapped[int] = mapped_column(ForeignKey("polls.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(180), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class PollResponse(Base):
+    __tablename__ = "poll_responses"
+    __table_args__ = (UniqueConstraint("poll_id", "user_id", name="uq_poll_user_response"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    poll_id: Mapped[int] = mapped_column(ForeignKey("polls.id", ondelete="CASCADE"), index=True)
+    option_id: Mapped[int | None] = mapped_column(ForeignKey("poll_options.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    answer_text: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class ApprovalEvent(Base):
     __tablename__ = "approval_events"
 

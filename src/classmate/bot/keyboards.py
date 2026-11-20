@@ -15,14 +15,18 @@ def main_menu(
         [KeyboardButton(text="📚 تکالیف من"), KeyboardButton(text="📝 تقویم امتحانات")],
         [KeyboardButton(text="📅 برنامه هفتگی"), KeyboardButton(text="📣 اطلاعیه‌ها")],
         [KeyboardButton(text="📋 گزارش‌های امروز"), KeyboardButton(text="🔔 تنظیم اعلان‌ها")],
+        [KeyboardButton(text="📤 ارسال تکلیف"), KeyboardButton(text="📊 نمرات من")],
+        [KeyboardButton(text="🟢 حضور من"), KeyboardButton(text="🗳 نظرسنجی‌ها")],
     ]
     if is_approver:
         rows.append([KeyboardButton(text="🕓 موارد در انتظار بررسی")])
     if is_manager:
         rows.append([KeyboardButton(text="⚙️ مدیریت کلاس"), KeyboardButton(text="🗂 مدیریت محتوا")])
+        rows.append([KeyboardButton(text="👨‍🏫 ارزیابی کلاس")])
     if is_admin:
         rows.append([KeyboardButton(text="🏛 مدیریت سامانه")])
-    rows.append([KeyboardButton(text="🔑 ورود با کد دعوت"), KeyboardButton(text="❓ راهنمای استفاده")])
+    rows.append([KeyboardButton(text="🆘 پشتیبانی"), KeyboardButton(text="❓ راهنمای استفاده")])
+    rows.append([KeyboardButton(text="🔑 ورود با کد دعوت")])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
 
 

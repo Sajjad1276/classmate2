@@ -36,4 +36,20 @@ alembic upgrade head
 
 Python 3.12 · aiogram 3 · SQLAlchemy 2 · PostgreSQL · Redis · Docker
 
+## Phase two learning workflows
+
+- Student homework submissions with text, documents and photos
+- Personal grades with feedback and calculated average
+- Attendance history with present / absent / late / excused statuses
+- Class polls and short quizzes with one-response-per-user protection
+- Manager tools for entering grades, attendance and creating polls
+- Semantic button styling: blue for navigation, green for confirmation, yellow for follow-up and red for cancellation
+- Dedicated support entry point: `@Mizanup`
+
+After deploying phase two, run:
+
+```bash
+alembic upgrade head
+```
+
 Built to stay ahead of ClassMate 1 — cleaner architecture and a real product UI.

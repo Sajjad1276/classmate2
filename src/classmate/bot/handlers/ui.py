@@ -338,8 +338,12 @@ async def btn_help(message: Message, session: AsyncSession) -> None:
         "• <b>ثبت اطلاعات</b> — ثبت مرحله‌به‌مرحله تکلیف، امتحان یا گزارش\n"
         "• <b>بخش‌های آموزشی</b> — مشاهده تکالیف، امتحانات، برنامه و گزارش‌ها\n"
         "• <b>ورود با کد دعوت</b> — عضویت سریع در کلاس\n"
+        "• <b>ارسال تکلیف</b> — ارسال متن، فایل یا تصویر پاسخ\n"
+        "• <b>نمرات و حضور من</b> — مشاهده سوابق آموزشی شخصی\n"
+        "• <b>نظرسنجی‌ها</b> — شرکت در نظرسنجی‌ها و آزمون‌های کوتاه\n"
         "• <b>مدیریت کلاس</b> — مدیریت کدها، درس‌ها و برنامه هفتگی برای مدیران\n"
         "• <b>اتصال گروه</b> — کد اتصال را در گروه کلاس ارسال کنید\n\n"
+        "• <b>پشتیبانی</b> — ارتباط مستقیم با سازنده ربات: @Mizanup\n\n"
         "برای لغو هر فرم، گزینه «❌ انصراف» را انتخاب کنید.",
         reply_markup=await menu_for(session, user),
     )
@@ -400,6 +404,20 @@ async def cb_pick(callback: CallbackQuery, session: AsyncSession, state: FSMCont
         from classmate.bot.handlers.phase1 import _render_content
 
         await _render_content(callback.message, session, class_id)
+        await callback.answer()
+        return
+
+    if action == "submissions":
+        from classmate.bot.handlers.phase2 import _show_homeworks
+
+        await _show_homeworks(callback.message, session, class_id)
+        await callback.answer()
+        return
+
+    if action == "evaluation":
+        from classmate.bot.handlers.phase2 import evaluation_panel
+
+        await evaluation_panel(callback.message, session, state, class_id)
         await callback.answer()
         return
 

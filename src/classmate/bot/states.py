@@ -69,3 +69,17 @@ class AnnouncementForm(StatesGroup):
 class EditRecordForm(StatesGroup):
     first = State()
     second = State()
+
+
+class SubmissionForm(StatesGroup):
+    homework_id = State()
+    answer = State()
+
+
+class EvaluationForm(StatesGroup):
+    data = State()
+
+
+class PollCreateForm(StatesGroup):
+    question = State()
+    options = State()
