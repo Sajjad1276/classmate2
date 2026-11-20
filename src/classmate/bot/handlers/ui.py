@@ -49,8 +49,6 @@ router = Router(name="ui")
 logger = logging.getLogger(__name__)
 
 WEEKDAYS = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
-_ROLE_CACHE: dict[int, tuple[float, tuple[bool, bool, bool]]] = {}
-_CLASS_CACHE: dict[int, tuple[float, list[tuple[int, str, str]]]] = {}
 
 
 async def render_panel(message: Message, text: str, markup) -> None:
