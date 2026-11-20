@@ -133,10 +133,8 @@ def group_panel(*, class_id: int, class_name: str = "") -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="➕ تکلیف جدید", callback_data=f"g:new:hw:{cid}", style="success"),
                 InlineKeyboardButton(text="➕ امتحان جدید", callback_data=f"g:new:exam:{cid}", style="success"),
-                InlineKeyboardButton(text="➕ گزارش جدید", callback_data=f"g:new:report:{cid}", style="success"),
             ],
             [
-                InlineKeyboardButton(text="🕓 در انتظار بررسی", callback_data=f"g:view:pending:{cid}", style="primary"),
                 InlineKeyboardButton(text="🔄 به‌روزرسانی پنل", callback_data=f"g:panel:{cid}", style="primary"),
             ],
         ]
