@@ -12,7 +12,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.bot.keyboards import (
-    approval_keyboard,
     cancel_kb,
     class_picker,
     connect_group_kb,
@@ -46,6 +45,7 @@ from classmate.db.models import (
     TimetableEntry,
 )
 from classmate.domain.dates import parse_school_date, parse_school_datetime
+from classmate.services.outbox import enqueue_telegram_message
 from classmate.services.permissions import (
     activate_student_membership,
     code_expiry,
@@ -411,7 +411,6 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
     )
     ctx = await get_class_with_school(session, data["class_id"])
     class_group = ctx[0] if ctx else None
-    await session.commit()
     body = (
         f"🕓 <b>تکلیف جدید برای بررسی</b>\n"
         f"درس: {escape(subject.name)}\n"
@@ -419,14 +418,17 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
     if class_group and class_group.group_chat_id:
-        try:
-            await message.bot.send_message(
-                class_group.group_chat_id,
-                body,
-                reply_markup=approval_keyboard("homework", record.id),
-            )
-        except Exception:
-            logger.warning("Could not send homework approval notification", exc_info=True)
+        await enqueue_telegram_message(
+            session,
+            target_type="group",
+            target_chat_id=class_group.group_chat_id,
+            class_id=class_group.id,
+            text=body,
+            action_type="homework",
+            action_id=record.id,
+            idempotency_key=f"approval:homework:{record.id}",
+        )
+    await session.commit()
 
     await state.clear()
     await message.answer(
@@ -505,7 +507,6 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
         scheduled,
         user.id,
     )
-    await session.commit()
     body = (
         f"🕓 <b>امتحان جدید برای بررسی</b>\n"
         f"درس: {escape(subject.name)}\n"
@@ -513,14 +514,17 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
     if class_group.group_chat_id:
-        try:
-            await message.bot.send_message(
-                class_group.group_chat_id,
-                body,
-                reply_markup=approval_keyboard("exam", record.id),
-            )
-        except Exception:
-            logger.warning("Could not send exam approval notification", exc_info=True)
+        await enqueue_telegram_message(
+            session,
+            target_type="group",
+            target_chat_id=class_group.group_chat_id,
+            class_id=class_group.id,
+            text=body,
+            action_type="exam",
+            action_id=record.id,
+            idempotency_key=f"approval:exam:{record.id}",
+        )
+    await session.commit()
     await state.clear()
     await message.answer("✅ امتحان ثبت شد و در انتظار بررسی و تأیید است.", reply_markup=await menu_for(session, user))
 
@@ -548,20 +552,22 @@ async def report_body(message: Message, state: FSMContext, session: AsyncSession
     record = await create_daily_report(
         session, data["class_id"], local_today, message.text.strip(), user.id
     )
-    await session.commit()
     body = (
         f"🕓 <b>گزارش روزانه برای بررسی</b>\n"
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
     if class_group and class_group.group_chat_id:
-        try:
-            await message.bot.send_message(
-                class_group.group_chat_id,
-                body,
-                reply_markup=approval_keyboard("report", record.id),
-            )
-        except Exception:
-            logger.warning("Could not send report approval notification", exc_info=True)
+        await enqueue_telegram_message(
+            session,
+            target_type="group",
+            target_chat_id=class_group.group_chat_id,
+            class_id=class_group.id,
+            text=body,
+            action_type="report",
+            action_id=record.id,
+            idempotency_key=f"approval:report:{record.id}",
+        )
+    await session.commit()
     await state.clear()
     await message.answer("✅ گزارش ثبت شد و در انتظار بررسی و تأیید است.", reply_markup=await menu_for(session, user))
 
