@@ -19,8 +19,7 @@ from classmate.domain.dates import jalali_date
 from classmate.services.outbox import enqueue_telegram_message
 from classmate.services.permissions import get_class_with_school, is_class_manager, user_can_access_class
 from classmate.services.phase2 import (
-
-from classmate.services.phase2 import validate_grade_values    active_polls,
+    active_polls,
     answer_poll,
     approved_homeworks_for_student,
     poll_options,
@@ -28,6 +27,7 @@ from classmate.services.phase2 import validate_grade_values    active_polls,
     save_submission,
     student_attendance,
     student_grades,
+    validate_grade_values,
 )
 
 router = Router(name="phase2")
