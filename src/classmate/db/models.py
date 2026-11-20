@@ -173,7 +173,6 @@ class LessonSession(TimestampMixin, Base):
 
 class DailyReport(TimestampMixin, Base):
     __tablename__ = "daily_reports"
-    __table_args__ = (UniqueConstraint("class_id", "report_date", name="uq_daily_report_class_date"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
