@@ -28,7 +28,8 @@ async def claim_jobs(session):
         update(ReminderJob)
         .where(
             ReminderJob.status == ReminderStatus.PROCESSING,
-            ReminderJob.locked_at < lease_expired,
+            (ReminderJob.locked_at.is_(None))
+            | (ReminderJob.locked_at < lease_expired),
         )
         .values(status=ReminderStatus.PENDING, locked_at=None)
     )
@@ -55,8 +56,17 @@ async def claim_jobs(session):
 
 async def _job_is_deliverable(session, job: ReminderJob) -> bool:
     """Revalidate the record, class and recipient immediately before delivery."""
-    class_group = await session.get(ClassGroup, job.class_id)
-    if class_group is None or not class_group.is_active:
+    class_group = await session.scalar(
+        select(ClassGroup)
+        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
+        .where(
+            ClassGroup.id == job.class_id,
+            ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
+        )
+    )
+    if class_group is None:
         return False
 
     model = {
@@ -227,7 +237,8 @@ async def _claim_outbox_ids(session) -> list[int]:
         update(TelegramOutbox)
         .where(
             TelegramOutbox.status == OutboxStatus.PROCESSING,
-            TelegramOutbox.locked_at < lease_expired,
+            (TelegramOutbox.locked_at.is_(None))
+            | (TelegramOutbox.locked_at < lease_expired),
         )
         .values(status=OutboxStatus.PENDING, locked_at=None)
     )
