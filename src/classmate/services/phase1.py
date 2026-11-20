@@ -15,6 +15,7 @@ from classmate.db.models import (
     Exam,
     Homework,
     NotificationPreference,
+    ReminderJob,
     School,
     Subject,
     TelegramOutbox,
