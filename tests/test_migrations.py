@@ -10,14 +10,20 @@ from sqlalchemy import create_engine, inspect
 
 def _run_alembic(root: Path, database_url: str, *args: str, env: dict[str, str]) -> None:
     command = [sys.executable, "-m", "alembic", *args]
-    subprocess.run(
+    result = subprocess.run(
         command,
         cwd=root,
         env={**env, "DATABASE_URL": database_url},
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
+    if result.returncode:
+        raise AssertionError(
+            f"Alembic {' '.join(args)} failed.\n"
+            f"stdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        )
 
 
 def test_alembic_head_installs_without_bot_token_and_is_repeatable(tmp_path, monkeypatch):
