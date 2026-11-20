@@ -305,7 +305,8 @@ async def _education_result(target: Message, text: str, close_reply_keyboard: bo
     if close_reply_keyboard:
         await render_panel(target, text, education_result_kb())
     else:
-        await target.answer(text, reply_markup=education_result_kb())
+        # Group-panel results must not show private navigation callbacks.
+        await target.answer(text)
 
 
 async def run_view(
@@ -600,6 +601,9 @@ async def btn_help(message: Message, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("menu:"))
 async def cb_category(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("این منو فقط از گفت‌وگوی خصوصی ربات در دسترس است.", show_alert=True)
+        return
     action = callback.data.split(":", 1)[1]
     await delete_panel(callback.message)
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
@@ -647,6 +651,10 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
     elif action == "education":
         await render_panel(callback.message, "🎓 <b>بخش آموزشی</b>\nگزینه موردنظر را انتخاب کنید:", education_menu())
     elif action == "new":
+        _school_admin, manager, _approver = await role_flags(session, user)
+        if not (manager or user.is_platform_admin):
+            await callback.answer("ثبت تکلیف و امتحان از این بخش فقط برای مدیر کلاس مجاز است.", show_alert=True)
+            return
         await render_panel(
             callback.message,
             "📝 <b>ثبت اطلاعات</b>\nنوع اطلاعات موردنظر را انتخاب کنید:",
@@ -663,6 +671,9 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
 
 @router.callback_query(F.data == "ui:home")
 async def cb_home(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("منوی اصلی فقط در گفت‌وگوی خصوصی ربات در دسترس است.", show_alert=True)
+        return
     await state.clear()
     await delete_panel(callback.message)
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
