@@ -25,6 +25,7 @@ from classmate.db.models import (
 )
 from classmate.domain.dates import persian_weekday
 from classmate.services.notifications import schedule_approved_record_reminders
+from classmate.services.permissions import can_approve
 
 
 def normalize_subject_name(value: str) -> str:
@@ -321,6 +322,9 @@ async def approve_record(
         return False, f"این مورد در وضعیت {record.status} است و قابل تأیید نیست."
     if record.created_by == actor_id:
         return False, "ثبت‌کننده اجازه تأیید درخواست خودش را ندارد."
+    actor = await session.get(User, actor_id)
+    if actor is None or not await can_approve(session, actor, class_id):
+        return False, "شما اجازه تأیید موارد این کلاس را ندارید."
 
     record.status = RecordStatus.APPROVED
     await _cancel_pending_outbox_for_record(session, entity_type, entity_id)
@@ -378,6 +382,9 @@ async def reject_record(
         return False, "اطلاعات موردنظر پیدا نشد."
     if record.status not in {RecordStatus.PENDING, RecordStatus.REVISION_REQUESTED}:
         return False, "این مورد در وضعیت قابل رد نیست."
+    actor = await session.get(User, actor_id)
+    if actor is None or not await can_approve(session, actor, class_id):
+        return False, "شما اجازه رد موارد این کلاس را ندارید."
 
     record.status = RecordStatus.REJECTED
     await _cancel_pending_outbox_for_record(session, entity_type, entity_id)
