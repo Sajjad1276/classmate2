@@ -1,7 +1,5 @@
 """Submit homework / exam / report via simple command forms."""
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
 from html import escape
 
 from aiogram import Router
@@ -10,10 +8,8 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.core.config import get_settings
-from classmate.core.enums import RecordStatus
 from classmate.domain.dates import parse_school_date, parse_school_datetime
 from classmate.services.permissions import get_class_with_school, is_class_manager, user_can_access_class
-from classmate.services.outbox import enqueue_telegram_message
 from classmate.services.records import (
     add_subject,
     create_daily_report,
@@ -117,31 +113,8 @@ async def new_homework(message: Message, session: AsyncSession) -> None:
     record = await create_homework(
         session, class_group.id, subject, title, description, due_on, user.id
     )
-    pending = record.status == RecordStatus.PENDING
-    body = (
-        f"{'🕓 <b>تکلیف جدید برای بررسی</b>' if pending else '✅ <b>تکلیف جدید ثبت و منتشر شد</b>'}\n"
-        f"درس: {escape(subject.name)}\n"
-        f"عنوان: {escape(record.title)}\n"
-        f"ثبت‌کننده: {escape(user.full_name)}"
-    )
-    if class_group.group_chat_id:
-        await enqueue_telegram_message(
-            session,
-            target_type="group",
-            target_chat_id=class_group.group_chat_id,
-            class_id=class_group.id,
-            text=body,
-            entity_type="homework",
-            entity_id=record.id,
-            expected_record_status=record.status.value,
-            action_type="homework" if pending else None,
-            action_id=record.id if pending else None,
-            idempotency_key=f"approval:homework:{record.id}",
-        )
     await session.commit()
-    await message.answer(
-        f"تکلیف ثبت و منتشر شد (#{record.id})." if not pending else f"تکلیف ثبت شد و در انتظار بررسی و تأیید است (#{record.id})."
-    )
+    await message.answer(f"✅ تکلیف ثبت و در کلاس منتشر شد (#{record.id}).")
 
 
 @router.message(Command("new_exam"))
@@ -181,85 +154,27 @@ async def new_exam(message: Message, session: AsyncSession) -> None:
     record = await create_exam(
         session, class_group.id, subject, title, scope, "quiz", scheduled, user.id
     )
-    pending = record.status == RecordStatus.PENDING
-    body = (
-        f"{'🕓 <b>امتحان جدید برای بررسی</b>' if pending else '✅ <b>امتحان جدید ثبت و منتشر شد</b>'}\n"
-        f"درس: {escape(subject.name)}\n"
-        f"عنوان: {escape(record.title)}\n"
-        f"ثبت‌کننده: {escape(user.full_name)}"
-    )
-    if class_group.group_chat_id:
-        await enqueue_telegram_message(
-            session,
-            target_type="group",
-            target_chat_id=class_group.group_chat_id,
-            class_id=class_group.id,
-            text=body,
-            entity_type="exam",
-            entity_id=record.id,
-            expected_record_status=record.status.value,
-            action_type="exam" if pending else None,
-            action_id=record.id if pending else None,
-            idempotency_key=f"approval:exam:{record.id}",
-        )
     await session.commit()
-    await message.answer(
-        f"امتحان ثبت و منتشر شد (#{record.id})." if not pending else f"امتحان ثبت شد و در انتظار بررسی و تأیید است (#{record.id})."
-    )
+    await message.answer(f"✅ امتحان ثبت و در کلاس منتشر شد (#{record.id}).")
 
 
 @router.message(Command("new_report"))
 async def new_report(message: Message, session: AsyncSession) -> None:
-    """/new_report متن گزارش [| عنوان]"""
-    try:
-        raw = message.text.split(maxsplit=1)[1].strip()
-        if "|" in raw:
-            body, title = [p.strip() for p in raw.split("|", 1)]
-        else:
-            body, title = raw, "گزارش روزانه"
-    except IndexError:
-        await message.answer("قالب: /new_report متن گزارش [| عنوان]")
-        return
-
-    ctx, user = await _ctx(message, session)
-    if ctx is None:
-        await message.answer("لطفاً این عملیات را در گروه کلاس انجام دهید.")
-        return
-    class_group, _, school = ctx
-    if not await is_class_manager(session, user, class_group.id):
-        await message.answer("فقط مدیر کلاس می‌تواند گزارش روزانه ثبت کند.")
-        return
-    local_today = datetime.now(ZoneInfo(school.timezone)).date()
-    record = await create_daily_report(
-        session, class_group.id, local_today, body, user.id, title=title
-    )
-    pending = record.status == RecordStatus.PENDING
-    text = (
-        f"{'🕓 <b>گزارش روزانه جدید برای بررسی</b>' if pending else '✅ <b>گزارش روزانه جدید ثبت و منتشر شد</b>'}\n"
-        f"عنوان: {escape(record.title or '')}\n"
-        f"ثبت‌کننده: {escape(user.full_name)}"
-    )
-    if class_group.group_chat_id:
-        await enqueue_telegram_message(
-            session,
-            target_type="group",
-            target_chat_id=class_group.group_chat_id,
-            class_id=class_group.id,
-            text=text,
-            entity_type="report",
-            entity_id=record.id,
-            expected_record_status=record.status.value,
-            action_type="report" if pending else None,
-            action_id=record.id if pending else None,
-            idempotency_key=f"approval:report:{record.id}",
+    """Block the legacy group command; daily reports now require a private confirmation."""
+    if message.chat.type in {"group", "supergroup"}:
+        await message.answer(
+            "برای ثبت گزارش روزانه، از گفت‌وگوی خصوصی ربات وارد «ثبت اطلاعات ← ثبت گزارش روزانه» شوید. "
+            "گزارش بدون پیش‌نمایش و تأیید شما در گروه منتشر نمی‌شود."
         )
-    await session.commit()
+        return
+    user = await _user(session, message.from_user, private=True)
     await message.answer(
-        f"گزارش روزانه ثبت و منتشر شد (#{record.id})." if not pending else f"گزارش روزانه ثبت شد و در انتظار بررسی و تأیید است (#{record.id})."
+        "برای ثبت گزارش روزانه از پنل ربات استفاده کنید: «ثبت اطلاعات ← ثبت گزارش روزانه». "
+        "پیش از ارسال، متن را می‌توانید ویرایش یا لغو کنید.",
+        reply_markup=await _private_menu(session, user),
     )
 
 
-@router.message(Command("timetable_set"))
 async def timetable_set(message: Message, session: AsyncSession) -> None:
     """/timetable_set روز | زنگ | درس | شروع-پایان"""
     from classmate.db.models import TimetableEntry
