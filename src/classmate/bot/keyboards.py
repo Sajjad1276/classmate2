@@ -10,14 +10,16 @@ def main_menu(
     is_admin: bool = False,
 ) -> ReplyKeyboardMarkup:
     rows: list[list[KeyboardButton]] = [
-        [KeyboardButton(text="🏫 کلاس‌های من"), KeyboardButton(text="➕ ثبت اطلاعات")],
+        [KeyboardButton(text="🏠 داشبورد من"), KeyboardButton(text="🏫 کلاس‌های من")],
+        [KeyboardButton(text="➕ ثبت اطلاعات"), KeyboardButton(text="🔎 جست‌وجو")],
         [KeyboardButton(text="📚 تکالیف من"), KeyboardButton(text="📝 تقویم امتحانات")],
-        [KeyboardButton(text="📅 برنامه هفتگی"), KeyboardButton(text="📋 گزارش‌های امروز")],
+        [KeyboardButton(text="📅 برنامه هفتگی"), KeyboardButton(text="📣 اطلاعیه‌ها")],
+        [KeyboardButton(text="📋 گزارش‌های امروز"), KeyboardButton(text="🔔 تنظیم اعلان‌ها")],
     ]
     if is_approver:
         rows.append([KeyboardButton(text="🕓 موارد در انتظار بررسی")])
     if is_manager:
-        rows.append([KeyboardButton(text="⚙️ مدیریت کلاس")])
+        rows.append([KeyboardButton(text="⚙️ مدیریت کلاس"), KeyboardButton(text="🗂 مدیریت محتوا")])
     if is_admin:
         rows.append([KeyboardButton(text="🏛 مدیریت سامانه")])
     rows.append([KeyboardButton(text="🔑 ورود با کد دعوت"), KeyboardButton(text="❓ راهنمای استفاده")])

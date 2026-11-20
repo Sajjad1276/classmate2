@@ -54,3 +54,13 @@ class TimetableForm(StatesGroup):
     period = State()
     subject = State()
     time_range = State()
+
+
+class SearchForm(StatesGroup):
+    query = State()
+
+
+class AnnouncementForm(StatesGroup):
+    class_id = State()
+    title = State()
+    body = State()

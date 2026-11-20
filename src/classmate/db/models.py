@@ -274,6 +274,24 @@ class NotificationPreference(TimestampMixin, Base):
     exams_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
+class Announcement(TimestampMixin, Base):
+    __tablename__ = "announcements"
+    __table_args__ = (
+        Index("ix_announcement_class_published", "class_id", "published_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(180), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    published_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
 class ReminderJob(Base):
     __tablename__ = "reminder_jobs"
     __table_args__ = (

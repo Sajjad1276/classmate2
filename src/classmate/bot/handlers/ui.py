@@ -372,6 +372,37 @@ async def cb_pick(callback: CallbackQuery, session: AsyncSession, state: FSMCont
         await callback.answer()
         return
 
+    if action == "calendar":
+        from classmate.bot.handlers.phase1 import _render_calendar
+
+        await _render_calendar(callback.message, session, class_id, next(
+            name for cid, name, _school in await classes_for_user(session, user) if cid == class_id
+        ))
+        await callback.answer()
+        return
+
+    if action == "prefs":
+        from classmate.bot.handlers.phase1 import _render_preferences
+
+        class_name = next(name for cid, name, _school in await classes_for_user(session, user) if cid == class_id)
+        await _render_preferences(callback.message, session, user, class_id, class_name)
+        await callback.answer()
+        return
+
+    if action == "announcement":
+        from classmate.bot.handlers.phase1 import start_announcement_after_class
+
+        await start_announcement_after_class(callback.message, state, class_id)
+        await callback.answer()
+        return
+
+    if action == "content":
+        from classmate.bot.handlers.phase1 import _render_content
+
+        await _render_content(callback.message, session, class_id)
+        await callback.answer()
+        return
+
     # Wizard entry points — store class and hand off via state flag
     await state.update_data(class_id=class_id)
     await callback.answer()

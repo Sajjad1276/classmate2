@@ -353,6 +353,7 @@ async def reject_record(
         entity_id,
         {"status": "REJECTED", "note": note},
     )
+    await session.flush()
     return True, "درخواست رد شد."
 
 
