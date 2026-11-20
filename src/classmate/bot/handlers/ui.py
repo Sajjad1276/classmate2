@@ -8,7 +8,7 @@ from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -171,6 +171,120 @@ async def menu_for(session: AsyncSession, user: User):
     return main_menu(is_approver=approver, is_manager=manager, is_admin=admin or user.is_platform_admin)
 
 
+async def render_pending_for_class(
+    target: Message,
+    session: AsyncSession,
+    user: User,
+    class_id: int,
+    *,
+    close_reply_keyboard: bool = True,
+) -> None:
+    """Render a private, actionable review queue for one class."""
+    if not await can_approve(session, user, class_id):
+        await _education_result(
+            target, "شما اجازه بررسی اطلاعات این کلاس را ندارید.", close_reply_keyboard
+        )
+        return
+    context = await get_class_with_school(session, class_id)
+    if context is None:
+        await _education_result(
+            target, "کلاس انتخاب‌شده فعال نیست.", close_reply_keyboard
+        )
+        return
+    class_group = context[0]
+    pending = await list_pending_records(session, class_id)
+    if not pending:
+        await render_panel(
+            target,
+            f"🕓 <b>صف بررسی — {escape(class_group.name)}</b>\n\n"
+            "در حال حاضر درخواستی در انتظار بررسی نیست.",
+            InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="🔄 به‌روزرسانی", callback_data=f"review:back:{class_id}")],
+                    [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="ui:home", style="danger")],
+                ]
+            ),
+        )
+        return
+
+    type_labels = {
+        "homework": ("📚", "تکلیف"),
+        "exam": ("📝", "امتحان"),
+        "report": ("📋", "گزارش روزانه"),
+    }
+    counts = {
+        kind: sum(1 for row_kind, _ in pending if row_kind == kind)
+        for kind in type_labels
+    }
+    lines = [
+        f"🕓 <b>صف بررسی — {escape(class_group.name)}</b>",
+        "",
+        "درخواست‌های ثبت‌شده:",
+        f"📚 تکلیف: <b>{counts['homework']}</b>   📝 امتحان: <b>{counts['exam']}</b>   📋 گزارش: <b>{counts['report']}</b>",
+        "",
+        "برای مشاهده جزئیات و تصمیم‌گیری، یک مورد را انتخاب کنید:",
+    ]
+    buttons: list[list[InlineKeyboardButton]] = []
+    for kind, record in pending:
+        icon, label = type_labels[kind]
+        title = getattr(record, "title", None) or "گزارش روزانه"
+        creator = await session.get(User, record.created_by)
+        creator_name = creator.full_name if creator is not None else "کاربر نامشخص"
+        lines.append(
+            f"\n{icon} <b>{escape(label)} #{record.id}</b> — {escape(str(title)[:90])}"
+            f"\nثبت‌کننده: {escape(creator_name)}"
+        )
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{icon} {label} #{record.id} · {str(title)[:22]}",
+                    callback_data=f"review:open:{kind}:{record.id}:{class_id}",
+                )
+            ]
+        )
+    buttons.extend(
+        [
+            [InlineKeyboardButton(text="🔄 به‌روزرسانی صف", callback_data=f"review:back:{class_id}")],
+            [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="ui:home", style="danger")],
+        ]
+    )
+    await render_panel(
+        target,
+        "\n".join(lines),
+        InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
+
+
+async def show_pending_for_user(
+    target: Message,
+    session: AsyncSession,
+    user: User,
+) -> None:
+    """Show only classes where the current user has active review authority."""
+    classes = [
+        item
+        for item in await classes_for_user(session, user)
+        if await can_approve(session, user, item[0])
+    ]
+    if not classes:
+        await render_panel(
+            target,
+            "🕓 <b>موارد در انتظار بررسی</b>\n\n"
+            "هیچ کلاس فعالی با دسترسی بررسی برای حساب شما پیدا نشد.",
+            education_result_kb(),
+        )
+        return
+    if len(classes) == 1:
+        await render_pending_for_class(target, session, user, classes[0][0])
+        return
+    await render_panel(
+        target,
+        "🏫 <b>انتخاب کلاس برای بررسی</b>\n\n"
+        "درخواست‌های کدام کلاس را می‌خواهید بررسی کنید؟",
+        class_picker(classes, action="pending"),
+    )
+
+
 async def ask_class(message: Message, session: AsyncSession, action: str, user: User) -> None:
     classes = await classes_for_user(session, user)
     if not classes:
@@ -279,19 +393,9 @@ async def run_view(
         await _education_result(target, "\n".join(lines), close_reply_keyboard)
 
     elif action == "pending":
-        if not await can_approve(session, user, class_id):
-            await _education_result(target, "شما اجازه مشاهده این بخش را ندارید.", close_reply_keyboard)
-            return
-        pending = await list_pending_records(session, class_id)
-        if not pending:
-            await _education_result(target, f"🕓 <b>{escape(class_group.name)}</b>\nموردی در انتظار نیست.", close_reply_keyboard)
-            return
-        lines = [f"🕓 <b>در انتظار — {escape(class_group.name)}</b>"]
-        for label, rec in pending:
-            title = getattr(rec, "title", None) or "—"
-            lines.append(f"• {escape(str(label))} #{rec.id}: {escape(str(title))}")
-        await _education_result(target, "\n".join(lines), close_reply_keyboard)
-
+        await render_pending_for_class(
+            target, session, user, class_id, close_reply_keyboard=close_reply_keyboard
+        )
 
 # ── Reply buttons ───────────────────────────────────────────────────
 
@@ -354,8 +458,8 @@ async def btn_today(message: Message, session: AsyncSession) -> None:
 async def btn_pending(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user, private=message.chat.type == "private")
-    await ask_class(message, session, "pending", user)
+    user = await get_user(session, message.from_user, private=True)
+    await show_pending_for_user(message, session, user)
 
 
 @router.message(F.text.in_({"🎓 بخش آموزشی", "بخش آموزشی"}))
