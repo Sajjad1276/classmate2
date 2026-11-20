@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.bot.handlers.ui import classes_for_user, get_user, menu_for
 from classmate.bot.keyboards import cancel_kb, class_picker
-from classmate.bot.states import AnnouncementForm, SearchForm
+from classmate.bot.states import AnnouncementForm, EditRecordForm, SearchForm
 from classmate.domain.dates import jalali_date, jalali_datetime, persian_weekday
 from classmate.core.enums import RecordStatus
 from classmate.db.models import ClassGroup, DailyReport, Exam, Homework, Subject
@@ -24,6 +24,7 @@ from classmate.services.phase1 import (
     list_announcements,
     search_records,
     archive_record,
+    update_record,
 )
 
 router = Router(name="phase1")
@@ -248,7 +249,10 @@ async def _render_content(message: Message, session: AsyncSession, class_id: int
         title = getattr(item, "title", None) or "گزارش روزانه"
         status = "تأییدشده" if item.status == RecordStatus.APPROVED else "در انتظار بررسی"
         lines.append(f"\n• {escape(title)} — {status}")
-        buttons.append([InlineKeyboardButton(text=f"🗃 آرشیو: {title[:25]}", callback_data=f"p1:archive:{kind}:{item.id}")])
+        buttons.append([
+            InlineKeyboardButton(text=f"✏️ ویرایش: {title[:18]}", callback_data=f"p1:edit:{kind}:{item.id}"),
+            InlineKeyboardButton(text="🗃 آرشیو", callback_data=f"p1:archive:{kind}:{item.id}"),
+        ])
     buttons.append([InlineKeyboardButton(text="🏠 داشبورد", callback_data="p1:dashboard")])
     await message.answer("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
@@ -261,6 +265,43 @@ async def archive_callback(callback: CallbackQuery, session: AsyncSession) -> No
     await callback.answer(text, show_alert=not ok)
     if ok:
         await callback.message.edit_text("✅ مورد انتخاب‌شده آرشیو شد. برای مشاهده موارد باقی‌مانده دوباره پنل مدیریت محتوا را باز کنید.")
+
+
+@router.callback_query(F.data.startswith("p1:edit:"))
+async def edit_callback(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    _, _, kind, record_id = callback.data.split(":")
+    user = await get_user(session, callback.from_user)
+    model = {"homework": Homework, "exam": Exam, "report": DailyReport}[kind]
+    record = await session.get(model, int(record_id))
+    if record is None or not await is_class_manager(session, user, record.class_id):
+        await callback.answer("دسترسی ویرایش این مورد را ندارید.", show_alert=True)
+        return
+    await state.update_data(edit_kind=kind, edit_id=int(record_id))
+    await state.set_state(EditRecordForm.first)
+    await callback.message.answer("عنوان جدید را ارسال کنید:", reply_markup=cancel_kb())
+    await callback.answer()
+
+
+@router.message(EditRecordForm.first, F.text)
+async def edit_first(message: Message, state: FSMContext) -> None:
+    if message.text == "❌ انصراف":
+        return
+    data = await state.get_data()
+    await state.update_data(first=message.text)
+    await state.set_state(EditRecordForm.second)
+    label = "توضیحات جدید" if data["edit_kind"] == "homework" else "محدوده جدید" if data["edit_kind"] == "exam" else "متن جدید گزارش"
+    await message.answer(f"{label} را ارسال کنید:", reply_markup=cancel_kb())
+
+
+@router.message(EditRecordForm.second, F.text)
+async def edit_second(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if message.text == "❌ انصراف":
+        return
+    data = await state.get_data()
+    user = await get_user(session, message.from_user)
+    ok, text = await update_record(session, data["edit_kind"], data["edit_id"], data["first"], message.text, user)
+    await state.clear()
+    await message.answer(("✅ " if ok else "⚠️ ") + text, reply_markup=await menu_for(session, user))
 
 
 @router.callback_query(F.data == "p1:announcements")

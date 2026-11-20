@@ -121,6 +121,35 @@ async def archive_record(session: AsyncSession, entity_type: str, entity_id: int
     return True, "اطلاعات با موفقیت آرشیو شد."
 
 
+async def update_record(
+    session: AsyncSession,
+    entity_type: str,
+    entity_id: int,
+    first: str,
+    second: str,
+    actor: User,
+) -> tuple[bool, str]:
+    model = {EntityType.HOMEWORK.value: Homework, EntityType.EXAM.value: Exam,
+             EntityType.REPORT.value: DailyReport}.get(entity_type)
+    if model is None:
+        return False, "نوع اطلاعات معتبر نیست."
+    record = await session.get(model, entity_id)
+    if record is None:
+        return False, "اطلاعات موردنظر پیدا نشد."
+    if not await is_class_manager(session, actor, record.class_id):
+        return False, "فقط مدیر کلاس می‌تواند اطلاعات را ویرایش کند."
+    if record.status == RecordStatus.CANCELLED:
+        return False, "اطلاعات آرشیوشده قابل ویرایش نیست."
+    record.title = first.strip()[:180]
+    if entity_type == EntityType.HOMEWORK.value:
+        record.description = second.strip()
+    elif entity_type == EntityType.EXAM.value:
+        record.scope = second.strip()
+    else:
+        record.body = second.strip()
+    return True, "اطلاعات با موفقیت ویرایش شد."
+
+
 async def get_preferences(session: AsyncSession, user_id: int, class_id: int) -> NotificationPreference:
     pref = await session.scalar(select(NotificationPreference).where(
         NotificationPreference.user_id == user_id, NotificationPreference.class_id == class_id))

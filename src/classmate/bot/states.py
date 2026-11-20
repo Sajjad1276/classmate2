@@ -64,3 +64,8 @@ class AnnouncementForm(StatesGroup):
     class_id = State()
     title = State()
     body = State()
+
+
+class EditRecordForm(StatesGroup):
+    first = State()
+    second = State()
