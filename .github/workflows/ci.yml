@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONUTF8: '1'
+      PYTHONPATH: src
       POSTGRES_TEST_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/classmate_test
     services:
       postgres:
