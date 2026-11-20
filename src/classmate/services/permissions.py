@@ -42,6 +42,12 @@ async def get_class_with_school(
 
 
 async def user_can_access_class(session: AsyncSession, user: User, class_id: int) -> bool:
+    if not user.is_active:
+        return False
+    # Validate the resource itself before considering any role or membership.
+    context = await get_class_with_school(session, class_id)
+    if context is None:
+        return False
     if user.is_platform_admin:
         return True
 
@@ -55,11 +61,7 @@ async def user_can_access_class(session: AsyncSession, user: User, class_id: int
     if membership:
         return True
 
-    context = await get_class_with_school(session, class_id)
-    if context is None:
-        return False
     _, _, school = context
-
     school_admin = await session.scalar(
         select(SchoolMembership).where(
             SchoolMembership.school_id == school.id,
@@ -69,9 +71,9 @@ async def user_can_access_class(session: AsyncSession, user: User, class_id: int
         )
     )
     return school_admin is not None
-
-
 async def is_school_admin(session: AsyncSession, user: User, school_id: int) -> bool:
+    if not user.is_active:
+        return False
     if user.is_platform_admin:
         return True
     return (
@@ -87,6 +89,8 @@ async def is_school_admin(session: AsyncSession, user: User, school_id: int) -> 
 
 
 async def can_approve(session: AsyncSession, user: User, class_id: int) -> bool:
+    if not user.is_active or await get_class_with_school(session, class_id) is None:
+        return False
     if user.is_platform_admin:
         return True
 
@@ -107,6 +111,8 @@ async def can_approve(session: AsyncSession, user: User, class_id: int) -> bool:
 
 
 async def is_class_manager(session: AsyncSession, user: User, class_id: int) -> bool:
+    if not user.is_active or await get_class_with_school(session, class_id) is None:
+        return False
     if user.is_platform_admin:
         return True
     membership = await session.scalar(
@@ -123,6 +129,28 @@ async def is_class_manager(session: AsyncSession, user: User, class_id: int) -> 
     if context is None:
         return False
     return await is_school_admin(session, user, context[2].id)
+
+
+async def activate_student_membership(
+    session: AsyncSession, class_id: int, user_id: int
+) -> ClassMembership:
+    """Join as a student without restoring stale privileged roles."""
+    membership = await session.scalar(
+        select(ClassMembership).where(
+            ClassMembership.class_id == class_id,
+            ClassMembership.user_id == user_id,
+        ).with_for_update()
+    )
+    if membership is None:
+        membership = ClassMembership(
+            class_id=class_id, user_id=user_id, role=Role.STUDENT, is_active=True
+        )
+        session.add(membership)
+    elif not membership.is_active:
+        membership.role = Role.STUDENT
+        membership.is_active = True
+    await session.flush()
+    return membership
 
 
 def code_expiry(minutes: int = 30) -> datetime:
