@@ -1,12 +1,16 @@
 from html import escape
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.core.config import get_settings
+from classmate.core.enums import RecordStatus
+from classmate.domain.dates import jalali_date, jalali_datetime
+from classmate.db.models import DailyReport, Exam, Homework, Subject, User
 from classmate.services.permissions import can_approve, get_class_with_school
-from classmate.services.records import approve_record, list_pending_records, reject_record
+from classmate.services.records import approve_record, reject_record
+from classmate.bot.handlers.ui import render_pending_for_class, show_pending_for_user
 from classmate.services.users import ensure_user
 
 router = Router(name="approvals")
@@ -25,6 +29,200 @@ async def _user(session, tg_user, private=False):
         user.is_platform_admin = True
     return user
 
+
+
+
+@router.callback_query(F.data.startswith("review:open:"))
+async def open_review_item(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("بررسی درخواست فقط در پنل خصوصی ربات انجام می‌شود.", show_alert=True)
+        return
+    try:
+        _, _, entity_type, record_id_s, class_id_s = callback.data.split(":", 4)
+        record_id, class_id = int(record_id_s), int(class_id_s)
+    except (ValueError, TypeError):
+        await callback.answer("درخواست انتخاب‌شده معتبر نیست.", show_alert=True)
+        return
+
+    model = {
+        "homework": Homework,
+        "exam": Exam,
+        "report": DailyReport,
+    }.get(entity_type)
+    if model is None:
+        await callback.answer("نوع درخواست معتبر نیست.", show_alert=True)
+        return
+    user = await _user(session, callback.from_user, private=True)
+    if not await can_approve(session, user, class_id):
+        await callback.answer("دسترسی بررسی این کلاس را ندارید.", show_alert=True)
+        return
+    record = await session.get(model, record_id)
+    if record is None or record.class_id != class_id or record.status != RecordStatus.PENDING:
+        await callback.answer("این درخواست دیگر در صف بررسی نیست.", show_alert=True)
+        await render_pending_for_class(callback.message, session, user, class_id)
+        return
+
+    context = await get_class_with_school(session, class_id)
+    if context is None:
+        await callback.answer("کلاس دیگر فعال نیست.", show_alert=True)
+        return
+    class_group, _, school = context
+    creator = await session.get(User, record.created_by)
+    creator_name = creator.full_name if creator is not None else "کاربر نامشخص"
+    lines = [
+        f"🕓 <b>بررسی { {'homework': 'تکلیف', 'exam': 'امتحان', 'report': 'گزارش روزانه'}[entity_type] }</b>",
+        f"کلاس: <b>{escape(class_group.name)}</b>",
+        f"ثبت‌کننده: <b>{escape(creator_name)}</b>",
+        f"زمان ثبت: {jalali_datetime(record.created_at, school.timezone)}",
+    ]
+    if entity_type == "homework":
+        subject = await session.get(Subject, record.subject_id)
+        lines.extend(
+            [
+                f"درس: {escape(subject.name if subject is not None else '—')}",
+                f"عنوان: <b>{escape(record.title)}</b>",
+                f"توضیحات: {escape(record.description[:2200])}",
+                f"موعد: {jalali_date(record.due_on) if record.due_on else 'بدون موعد'}",
+            ]
+        )
+    elif entity_type == "exam":
+        subject = await session.get(Subject, record.subject_id)
+        lines.extend(
+            [
+                f"درس: {escape(subject.name if subject is not None else '—')}",
+                f"عنوان: <b>{escape(record.title)}</b>",
+                f"محدوده: {escape(record.scope[:1800] or '—')}",
+                f"زمان برگزاری: {jalali_datetime(record.scheduled_at, school.timezone)}",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"تاریخ گزارش: {jalali_date(record.report_date)}",
+                f"عنوان: <b>{escape((record.title or 'گزارش روزانه')[:180])}</b>",
+                "",
+                escape(record.body[:2400]),
+            ]
+        )
+
+    if record.created_by == user.id:
+        lines.extend(["", "⚠️ این درخواست را خودتان ثبت کرده‌اید؛ برای جلوگیری از تأیید خودکار، اپراتور دیگری باید آن را بررسی کند."])
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="↩️ بازگشت به صف", callback_data=f"review:back:{class_id}")],
+            ]
+        )
+    else:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="✅ تأیید و انتشار", callback_data=f"review:approve:{entity_type}:{record_id}:{class_id}", style="success")],
+                [InlineKeyboardButton(text="❌ رد درخواست", callback_data=f"review:reject:{entity_type}:{record_id}:{class_id}", style="danger")],
+                [InlineKeyboardButton(text="↩️ بازگشت به صف", callback_data=f"review:back:{class_id}")],
+            ]
+        )
+    await callback.message.edit_text("\n".join(lines), reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("review:approve:"))
+async def approve_review_item(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("تأیید فقط از پنل خصوصی ربات مجاز است.", show_alert=True)
+        return
+    try:
+        _, _, entity_type, record_id_s, class_id_s = callback.data.split(":", 4)
+        record_id, class_id = int(record_id_s), int(class_id_s)
+    except (ValueError, TypeError):
+        await callback.answer("درخواست انتخاب‌شده معتبر نیست.", show_alert=True)
+        return
+    user = await _user(session, callback.from_user, private=True)
+    if not await can_approve(session, user, class_id):
+        await callback.answer("دسترسی تأیید این کلاس را ندارید.", show_alert=True)
+        return
+    model = {"homework": Homework, "exam": Exam, "report": DailyReport}.get(entity_type)
+    record = await session.get(model, record_id) if model is not None else None
+    if record is None or record.class_id != class_id:
+        await callback.answer("درخواست پیدا نشد.", show_alert=True)
+        return
+    context = await get_class_with_school(session, class_id)
+    if context is None:
+        await callback.answer("کلاس دیگر فعال نیست.", show_alert=True)
+        return
+    _, _, school = context
+    ok, result = await approve_record(
+        session, entity_type, record_id, user.id, school.id, class_id, school.timezone
+    )
+    if ok:
+        await session.commit()
+        await callback.message.edit_text(
+            "✅ <b>درخواست تأیید شد</b>\n\n"
+            "محتوا از صف خصوصی بررسی خارج شد و پیام عمومی آن برای گروه متصل در صف انتشار قرار گرفت.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="🕓 بازگشت به موارد در انتظار بررسی", callback_data=f"review:back:{class_id}")],
+                    [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="ui:home", style="danger")],
+                ]
+            ),
+        )
+    await callback.answer(result, show_alert=not ok)
+
+
+@router.callback_query(F.data.startswith("review:reject:"))
+async def reject_review_item(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("رد درخواست فقط از پنل خصوصی ربات مجاز است.", show_alert=True)
+        return
+    try:
+        _, _, entity_type, record_id_s, class_id_s = callback.data.split(":", 4)
+        record_id, class_id = int(record_id_s), int(class_id_s)
+    except (ValueError, TypeError):
+        await callback.answer("درخواست انتخاب‌شده معتبر نیست.", show_alert=True)
+        return
+    user = await _user(session, callback.from_user, private=True)
+    if not await can_approve(session, user, class_id):
+        await callback.answer("دسترسی رد درخواست در این کلاس را ندارید.", show_alert=True)
+        return
+    model = {"homework": Homework, "exam": Exam, "report": DailyReport}.get(entity_type)
+    record = await session.get(model, record_id) if model is not None else None
+    if record is None or record.class_id != class_id:
+        await callback.answer("درخواست پیدا نشد.", show_alert=True)
+        return
+    context = await get_class_with_school(session, class_id)
+    if context is None:
+        await callback.answer("کلاس دیگر فعال نیست.", show_alert=True)
+        return
+    _, _, school = context
+    ok, result = await reject_record(
+        session, entity_type, record_id, user.id, school.id, class_id
+    )
+    if ok:
+        await session.commit()
+        await callback.message.edit_text(
+            "❌ <b>درخواست رد شد</b>\n\n"
+            "این مورد منتشر نشد و از صف بررسی خارج شد.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="🕓 بازگشت به موارد در انتظار بررسی", callback_data=f"review:back:{class_id}")],
+                    [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="ui:home", style="danger")],
+                ]
+            ),
+        )
+    await callback.answer(result, show_alert=not ok)
+
+
+@router.callback_query(F.data.startswith("review:back:"))
+async def back_to_review_queue(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("صف بررسی فقط در پنل خصوصی ربات در دسترس است.", show_alert=True)
+        return
+    try:
+        class_id = int(callback.data.rsplit(":", 1)[1])
+    except ValueError:
+        await callback.answer("کلاس انتخاب‌شده معتبر نیست.", show_alert=True)
+        return
+    user = await _user(session, callback.from_user, private=True)
+    await render_pending_for_class(callback.message, session, user, class_id)
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("approve:"))
 async def on_approve(callback: CallbackQuery, session: AsyncSession) -> None:
@@ -104,38 +302,8 @@ async def on_reject(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.message(Command("pending"))
 async def cmd_pending(message: Message, session: AsyncSession) -> None:
-    user = await _user(session, message.from_user, private=message.chat.type == "private")
-    arg = message.text.split(maxsplit=1)[1] if message.text and " " in message.text else None
-
-    from classmate.services.records import get_group_context
-
-    if message.chat.type in {"group", "supergroup"}:
-        ctx = await get_group_context(session, message.chat.id)
-    elif arg:
-        try:
-            class_id = int(arg.strip())
-        except ValueError:
-            await message.answer("شناسه کلاس نامعتبر")
-            return
-        ctx = await get_class_with_school(session, class_id)
-    else:
-        await message.answer("فرمت صحیح: /pending شناسه_کلاس؛ یا این فرمان را در گروه کلاس اجرا کنید.")
+    if message.chat.type != "private":
+        await message.answer("صف بررسی فقط از پنل خصوصی ربات در دسترس اپراتورهاست.")
         return
-
-    if ctx is None:
-        await message.answer("کلاس موردنظر پیدا نشد")
-        return
-    class_group = ctx[0]
-    if not await can_approve(session, user, class_group.id):
-        await message.answer("شما اجازه مشاهده درخواست‌های در انتظار بررسی را ندارید.")
-        return
-
-    pending = await list_pending_records(session, class_group.id)
-    if not pending:
-        await message.answer("در حال حاضر درخواستی برای بررسی وجود ندارد.")
-        return
-    lines = ["🕓 <b>در انتظار تأیید</b>"]
-    for label, rec in pending:
-        title = getattr(rec, "title", None) or "—"
-        lines.append(f"• {escape(str(label))} #{rec.id}: {escape(str(title))}")
-    await message.answer("\n".join(lines))
+    user = await _user(session, message.from_user, private=True)
+    await show_pending_for_user(message, session, user)
