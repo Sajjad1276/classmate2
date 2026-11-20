@@ -4,9 +4,9 @@ services:
     environment:
       POSTGRES_DB: classmate
       POSTGRES_USER: classmate
-      POSTGRES_PASSWORD: classmate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -17,38 +17,47 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
 
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://classmate:${POSTGRES_PASSWORD}@db:5432/classmate
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
   bot:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://classmate:classmate@db:5432/classmate
+      DATABASE_URL: postgresql+asyncpg://classmate:${POSTGRES_PASSWORD}@db:5432/classmate
       REDIS_URL: redis://redis:6379/0
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
-    command: python -m classmate.bot.main
+    command: ["python", "-m", "classmate.bot.main"]
     restart: unless-stopped
 
   worker:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://classmate:classmate@db:5432/classmate
+      DATABASE_URL: postgresql+asyncpg://classmate:${POSTGRES_PASSWORD}@db:5432/classmate
       REDIS_URL: redis://redis:6379/0
     depends_on:
-      db:
-        condition: service_healthy
-    command: python -m classmate.worker.main
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "classmate.worker.main"]
     restart: unless-stopped
 
 volumes:

@@ -1,6 +1,7 @@
 """Submit homework / exam / report via simple command forms."""
 
-from datetime import date
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from html import escape
 
 from aiogram import Router
@@ -8,10 +9,10 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.bot.keyboards import approval_keyboard
 from classmate.core.config import get_settings
 from classmate.domain.dates import parse_school_date, parse_school_datetime
 from classmate.services.permissions import get_class_with_school, user_can_access_class
+from classmate.services.outbox import enqueue_telegram_message
 from classmate.services.records import (
     add_subject,
     create_daily_report,
@@ -117,11 +118,20 @@ async def new_homework(message: Message, session: AsyncSession) -> None:
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
     if class_group.group_chat_id:
-        await message.bot.send_message(
-            class_group.group_chat_id,
-            body,
-            reply_markup=approval_keyboard("homework", record.id),
+        await enqueue_telegram_message(
+            session,
+            target_type="group",
+            target_chat_id=class_group.group_chat_id,
+            class_id=class_group.id,
+            text=body,
+            action_type="homework",
+            action_id=record.id,
+            entity_type="homework",
+            entity_id=record.id,
+            expected_record_status="PENDING",
+            idempotency_key=f"approval:homework:{record.id}",
         )
+    await session.commit()
     await message.answer(f"تکلیف ثبت شد و در انتظار بررسی و تأیید است (#{record.id}).")
 
 
@@ -166,11 +176,20 @@ async def new_exam(message: Message, session: AsyncSession) -> None:
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
     if class_group.group_chat_id:
-        await message.bot.send_message(
-            class_group.group_chat_id,
-            body,
-            reply_markup=approval_keyboard("exam", record.id),
+        await enqueue_telegram_message(
+            session,
+            target_type="group",
+            target_chat_id=class_group.group_chat_id,
+            class_id=class_group.id,
+            text=body,
+            action_type="exam",
+            action_id=record.id,
+            entity_type="exam",
+            entity_id=record.id,
+            expected_record_status="PENDING",
+            idempotency_key=f"approval:exam:{record.id}",
         )
+    await session.commit()
     await message.answer(f"امتحان ثبت شد و در انتظار بررسی و تأیید است (#{record.id}).")
 
 
@@ -191,9 +210,10 @@ async def new_report(message: Message, session: AsyncSession) -> None:
     if ctx is None:
         await message.answer("لطفاً این عملیات را در گروه کلاس انجام دهید.")
         return
-    class_group, _, _ = ctx
+    class_group, _, school = ctx
+    local_today = datetime.now(ZoneInfo(school.timezone)).date()
     record = await create_daily_report(
-        session, class_group.id, date.today(), body, user.id, title=title
+        session, class_group.id, local_today, body, user.id, title=title
     )
     text = (
         f"🕓 <b>گزارش روزانه برای بررسی</b>\n"
@@ -201,11 +221,20 @@ async def new_report(message: Message, session: AsyncSession) -> None:
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
     if class_group.group_chat_id:
-        await message.bot.send_message(
-            class_group.group_chat_id,
-            text,
-            reply_markup=approval_keyboard("report", record.id),
+        await enqueue_telegram_message(
+            session,
+            target_type="group",
+            target_chat_id=class_group.group_chat_id,
+            class_id=class_group.id,
+            text=text,
+            action_type="report",
+            action_id=record.id,
+            entity_type="report",
+            entity_id=record.id,
+            expected_record_status="PENDING",
+            idempotency_key=f"approval:report:{record.id}",
         )
+    await session.commit()
     await message.answer(f"گزارش ثبت شد و در انتظار بررسی و تأیید است (#{record.id}).")
 
 

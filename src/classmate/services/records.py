@@ -3,10 +3,10 @@
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.core.enums import EntityType, RecordStatus
+from classmate.core.enums import EntityType, OutboxStatus, RecordStatus
 from classmate.db.models import (
     AcademicYear,
     ApprovalEvent,
@@ -18,6 +18,7 @@ from classmate.db.models import (
     Homework,
     LessonSession,
     ReminderJob,
+    TelegramOutbox,
     School,
     Subject,
     TimetableEntry,
@@ -65,6 +66,13 @@ async def get_subject(
 async def add_subject(
     session: AsyncSession, class_id: int, school_id: int, name: str
 ) -> Subject:
+    actual_school_id = await session.scalar(
+        select(AcademicYear.school_id)
+        .join(ClassGroup, ClassGroup.academic_year_id == AcademicYear.id)
+        .where(ClassGroup.id == class_id, ClassGroup.is_active.is_(True))
+    )
+    if actual_school_id != school_id:
+        raise ValueError("مدرسهٔ درس با مدرسهٔ کلاس مطابقت ندارد.")
     normalized = normalize_subject_name(name)
     subject = await session.scalar(
         select(Subject).where(
@@ -85,6 +93,25 @@ async def add_subject(
         session.add(ClassSubject(class_id=class_id, subject_id=subject.id))
     await session.flush()
     return subject
+
+
+async def _validate_subject_for_class(
+    session: AsyncSession, class_id: int, subject: Subject
+) -> None:
+    row = await session.execute(
+        select(ClassSubject.id, Subject.school_id, AcademicYear.school_id)
+        .join(Subject, ClassSubject.subject_id == Subject.id)
+        .join(ClassGroup, ClassSubject.class_id == ClassGroup.id)
+        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .where(
+            ClassSubject.class_id == class_id,
+            ClassSubject.subject_id == subject.id,
+            ClassGroup.is_active.is_(True),
+        )
+    )
+    linked = row.first()
+    if linked is None or linked[1] != linked[2]:
+        raise ValueError("درس انتخاب‌شده متعلق به این کلاس نیست.")
 
 
 async def get_or_create_next_lesson(
@@ -163,6 +190,7 @@ async def create_homework(
     created_by: int,
     due_session_id: int | None = None,
 ) -> Homework:
+    await _validate_subject_for_class(session, class_id, subject)
     record = Homework(
         class_id=class_id,
         subject_id=subject.id,
@@ -188,6 +216,7 @@ async def create_exam(
     scheduled_at: datetime,
     created_by: int,
 ) -> Exam:
+    await _validate_subject_for_class(session, class_id, subject)
     if scheduled_at.tzinfo is None:
         raise ValueError("Exam datetime must be timezone-aware")
     record = Exam(
@@ -251,6 +280,22 @@ async def audit(
     )
 
 
+async def _cancel_pending_outbox_for_record(
+    session: AsyncSession, entity_type: str, entity_id: int
+) -> None:
+    await session.execute(
+        update(TelegramOutbox)
+        .where(
+            TelegramOutbox.entity_type == entity_type,
+            TelegramOutbox.entity_id == entity_id,
+            TelegramOutbox.status.in_(
+                [OutboxStatus.PENDING, OutboxStatus.RETRY, OutboxStatus.PROCESSING]
+            ),
+        )
+        .values(status=OutboxStatus.CANCELLED, locked_at=None)
+    )
+
+
 async def approve_record(
     session: AsyncSession,
     entity_type: str,
@@ -278,6 +323,7 @@ async def approve_record(
         return False, "ثبت‌کننده اجازه تأیید درخواست خودش را ندارد."
 
     record.status = RecordStatus.APPROVED
+    await _cancel_pending_outbox_for_record(session, entity_type, entity_id)
     record.approved_by = actor_id
     record.approved_at = datetime.now(ZoneInfo(timezone_name))
     session.add(
@@ -334,6 +380,7 @@ async def reject_record(
         return False, "این مورد در وضعیت قابل رد نیست."
 
     record.status = RecordStatus.REJECTED
+    await _cancel_pending_outbox_for_record(session, entity_type, entity_id)
     session.add(
         ApprovalEvent(
             entity_type=entity_type,

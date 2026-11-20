@@ -1,8 +1,9 @@
 """Multi-step FSM wizards — no slash commands needed."""
 
 import logging
-from datetime import date, time as dtime
+from datetime import date, datetime, time as dtime, timezone
 from html import escape
+from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -11,7 +12,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.bot.keyboards import (
-    approval_keyboard,
     cancel_kb,
     class_picker,
     connect_group_kb,
@@ -21,7 +21,7 @@ from classmate.bot.keyboards import (
     skip_or_cancel_kb,
     subject_picker,
 )
-from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for, role_flags
+from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for
 from classmate.bot.states import (
     ClassForm,
     ConnectForm,
@@ -45,13 +45,16 @@ from classmate.db.models import (
     TimetableEntry,
 )
 from classmate.domain.dates import parse_school_date, parse_school_datetime
+from classmate.services.outbox import enqueue_telegram_message
 from classmate.services.permissions import (
+    activate_student_membership,
     code_expiry,
     get_class_with_school,
     hash_code,
     is_class_manager,
     is_school_admin,
     make_code,
+    user_can_access_class,
 )
 from classmate.services.records import (
     add_subject,
@@ -85,7 +88,7 @@ async def _subjects(session: AsyncSession, class_id: int) -> list[tuple[int, str
 @router.callback_query(F.data == "wiz:hw")
 async def entry_hw(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = await classes_for_user(session, user)
     if not classes:
         await callback.message.answer("برای ادامه، ابتدا باید عضو یک کلاس باشید.")
@@ -104,7 +107,7 @@ async def entry_hw(callback: CallbackQuery, state: FSMContext, session: AsyncSes
 @router.callback_query(F.data == "wiz:exam")
 async def entry_exam(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = await classes_for_user(session, user)
     if not classes:
         await callback.message.answer("برای ادامه، ابتدا عضو یک کلاس شوید.")
@@ -122,7 +125,7 @@ async def entry_exam(callback: CallbackQuery, state: FSMContext, session: AsyncS
 @router.callback_query(F.data == "wiz:report")
 async def entry_report(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = await classes_for_user(session, user)
     if not classes:
         await callback.message.answer("برای ادامه، ابتدا عضو یک کلاس شوید.")
@@ -140,8 +143,11 @@ async def entry_report(callback: CallbackQuery, state: FSMContext, session: Asyn
 @router.callback_query(F.data == "mgr:codes")
 async def entry_codes(callback: CallbackQuery, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
-    classes = await classes_for_user(session, user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    classes = [
+        row for row in await classes_for_user(session, user)
+        if await is_class_manager(session, user, row[0])
+    ]
     if not classes:
         await callback.message.answer("کلاسی برای مدیریت در دسترس نیست.")
         await callback.answer()
@@ -155,8 +161,11 @@ async def entry_codes(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data == "mgr:subject")
 async def entry_subject(callback: CallbackQuery, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
-    classes = await classes_for_user(session, user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    classes = [
+        row for row in await classes_for_user(session, user)
+        if await is_class_manager(session, user, row[0])
+    ]
     if not classes:
         await callback.message.answer("کلاسی در دسترس نیست.")
         await callback.answer()
@@ -170,8 +179,11 @@ async def entry_subject(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data == "mgr:timetable")
 async def entry_tt(callback: CallbackQuery, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
-    classes = await classes_for_user(session, user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    classes = [
+        row for row in await classes_for_user(session, user)
+        if await is_class_manager(session, user, row[0])
+    ]
     if not classes:
         await callback.message.answer("کلاسی در دسترس نیست.")
         await callback.answer()
@@ -186,7 +198,7 @@ async def entry_tt(callback: CallbackQuery, session: AsyncSession) -> None:
 async def entry_group(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     """Start official Telegram chat selection for a class manager."""
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     parts = callback.data.split(":")
     if len(parts) == 3:
         class_id = int(parts[2])
@@ -214,7 +226,11 @@ async def entry_group(callback: CallbackQuery, state: FSMContext, session: Async
 
 
 @router.callback_query(F.data == "adm:school")
-async def entry_school(callback: CallbackQuery, state: FSMContext) -> None:
+async def entry_school(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    if not user.is_platform_admin:
+        await callback.answer("دسترسی مدیر سامانه لازم است.", show_alert=True)
+        return
     await delete_panel(callback.message)
     await state.set_state(SchoolForm.name)
     await callback.message.answer("نام مدرسه را ارسال کنید:", reply_markup=cancel_kb())
@@ -224,7 +240,7 @@ async def entry_school(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "adm:class")
 async def entry_class(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     q = select(School).where(School.is_active.is_(True)).order_by(School.name)
     if not user.is_platform_admin:
         q = (
@@ -316,6 +332,7 @@ async def issue_codes(message, session, user, class_id: int) -> None:
     cls.group_link_code_expires_at = code_expiry(30)
     cls.member_join_code_hash = hash_code(join_code)
     cls.member_join_code_expires_at = code_expiry(60 * 24 * 7)
+    await session.commit()
     await message.answer(
         f"کدهای <b>{escape(cls.name)}</b>:\n\n"
         f"🔗 کد اتصال گروه (اعتبار: ۳۰ دقیقه):\n<code>{group_code}</code>\n\n"
@@ -372,7 +389,11 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
             await message.answer(str(e))
             return
 
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
+    if not data.get("class_id") or not await user_can_access_class(session, user, data["class_id"]):
+        await state.clear()
+        await message.answer("دسترسی شما به این کلاس فعال نیست.", reply_markup=await menu_for(session, user))
+        return
     subject = await session.get(Subject, data["subject_id"])
     if subject is None:
         await message.answer("درس انتخاب‌شده معتبر نیست.")
@@ -397,14 +418,20 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
     if class_group and class_group.group_chat_id:
-        try:
-            await message.bot.send_message(
-                class_group.group_chat_id,
-                body,
-                reply_markup=approval_keyboard("homework", record.id),
-            )
-        except Exception:
-            logger.warning("Could not send homework approval notification", exc_info=True)
+        await enqueue_telegram_message(
+            session,
+            target_type="group",
+            target_chat_id=class_group.group_chat_id,
+            class_id=class_group.id,
+            text=body,
+            action_type="homework",
+            action_id=record.id,
+            entity_type="homework",
+            entity_id=record.id,
+            expected_record_status="PENDING",
+            idempotency_key=f"approval:homework:{record.id}",
+        )
+    await session.commit()
 
     await state.clear()
     await message.answer(
@@ -463,8 +490,16 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
         await message.answer(str(e))
         return
 
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
+    if not data.get("class_id") or not await user_can_access_class(session, user, data["class_id"]):
+        await state.clear()
+        await message.answer("دسترسی شما به این کلاس فعال نیست.", reply_markup=await menu_for(session, user))
+        return
     subject = await session.get(Subject, data["subject_id"])
+    if subject is None:
+        await state.clear()
+        await message.answer("درس انتخاب‌شده معتبر نیست.", reply_markup=await menu_for(session, user))
+        return
     record = await create_exam(
         session,
         data["class_id"],
@@ -482,14 +517,20 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
     if class_group.group_chat_id:
-        try:
-            await message.bot.send_message(
-                class_group.group_chat_id,
-                body,
-                reply_markup=approval_keyboard("exam", record.id),
-            )
-        except Exception:
-            logger.warning("Could not send exam approval notification", exc_info=True)
+        await enqueue_telegram_message(
+            session,
+            target_type="group",
+            target_chat_id=class_group.group_chat_id,
+            class_id=class_group.id,
+            text=body,
+            action_type="exam",
+            action_id=record.id,
+            entity_type="exam",
+            entity_id=record.id,
+            expected_record_status="PENDING",
+            idempotency_key=f"approval:exam:{record.id}",
+        )
+    await session.commit()
     await state.clear()
     await message.answer("✅ امتحان ثبت شد و در انتظار بررسی و تأیید است.", reply_markup=await menu_for(session, user))
 
@@ -502,25 +543,40 @@ async def report_body(message: Message, state: FSMContext, session: AsyncSession
     if message.text == "❌ انصراف":
         return
     data = await state.get_data()
-    user = await get_user(session, message.from_user)
-    record = await create_daily_report(
-        session, data["class_id"], date.today(), message.text.strip(), user.id
-    )
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
+    if not data.get("class_id") or not await user_can_access_class(session, user, data["class_id"]):
+        await state.clear()
+        await message.answer("دسترسی شما به این کلاس فعال نیست.", reply_markup=await menu_for(session, user))
+        return
     ctx = await get_class_with_school(session, data["class_id"])
-    class_group = ctx[0] if ctx else None
+    if ctx is None:
+        await state.clear()
+        await message.answer("کلاس انتخاب‌شده معتبر نیست.", reply_markup=await menu_for(session, user))
+        return
+    class_group, _, school = ctx
+    local_today = datetime.now(ZoneInfo(school.timezone)).date()
+    record = await create_daily_report(
+        session, data["class_id"], local_today, message.text.strip(), user.id
+    )
     body = (
         f"🕓 <b>گزارش روزانه برای بررسی</b>\n"
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
     if class_group and class_group.group_chat_id:
-        try:
-            await message.bot.send_message(
-                class_group.group_chat_id,
-                body,
-                reply_markup=approval_keyboard("report", record.id),
-            )
-        except Exception:
-            logger.warning("Could not send report approval notification", exc_info=True)
+        await enqueue_telegram_message(
+            session,
+            target_type="group",
+            target_chat_id=class_group.group_chat_id,
+            class_id=class_group.id,
+            text=body,
+            action_type="report",
+            action_id=record.id,
+            entity_type="report",
+            entity_id=record.id,
+            expected_record_status="PENDING",
+            idempotency_key=f"approval:report:{record.id}",
+        )
+    await session.commit()
     await state.clear()
     await message.answer("✅ گزارش ثبت شد و در انتظار بررسی و تأیید است.", reply_markup=await menu_for(session, user))
 
@@ -551,16 +607,8 @@ async def join_code(message: Message, state: FSMContext, session: AsyncSession) 
         await message.answer("منو:", reply_markup=await menu_for(session, user))
         return
 
-    existing = await session.scalar(
-        select(ClassMembership).where(
-            ClassMembership.class_id == cls.id, ClassMembership.user_id == user.id
-        )
-    )
-    if existing:
-        existing.is_active = True
-    else:
-        session.add(ClassMembership(class_id=cls.id, user_id=user.id, role=Role.STUDENT))
-
+    await activate_student_membership(session, cls.id, user.id)
+    await session.commit()
     await state.clear()
     await message.answer(
         f"✅ با موفقیت به کلاس <b>{escape(cls.name)}</b> ملحق شدید.",
@@ -575,7 +623,7 @@ async def group_shared(message: Message, state: FSMContext, session: AsyncSessio
         return
     data = await state.get_data()
     class_id = data.get("class_id")
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     if not class_id or not await is_class_manager(session, user, class_id):
         await state.clear()
         await message.answer("دسترسی اتصال گروه برای شما فعال نیست.", reply_markup=ReplyKeyboardRemove())
@@ -616,8 +664,13 @@ async def group_shared(message: Message, state: FSMContext, session: AsyncSessio
         await state.clear()
         await message.answer("کلاس موردنظر پیدا نشد.", reply_markup=ReplyKeyboardRemove())
         return
+    if class_group.group_chat_id is not None and class_group.group_chat_id != shared.chat_id:
+        await state.clear()
+        await message.answer("این کلاس از قبل به گروه دیگری متصل است. ابتدا اتصال قبلی را لغو کنید.", reply_markup=ReplyKeyboardRemove())
+        return
     class_group.group_chat_id = shared.chat_id
     class_group.group_chat_title = shared.title or chat.title or shared.username or "گروه کلاس"
+    await session.commit()
     await state.clear()
     await message.answer(
         f"✅ گروه «{escape(class_group.group_chat_title)}» به کلاس <b>{escape(class_group.name)}</b> متصل شد.\n"
@@ -631,7 +684,7 @@ async def group_shared(message: Message, state: FSMContext, session: AsyncSessio
 async def group_shared_text(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         await state.clear()
-        user = await get_user(session, message.from_user)
+        user = await get_user(session, message.from_user, private=message.chat.type == "private")
         await message.answer("اتصال گروه لغو شد.", reply_markup=await menu_for(session, user))
         return
     await message.answer("برای اتصال، دکمه «✅ انتخاب گروه کلاس» را بزنید یا «❌ انصراف» را انتخاب کنید.")
@@ -642,24 +695,67 @@ async def group_shared_text(message: Message, state: FSMContext, session: AsyncS
 
 @router.message(F.chat.type.in_({"group", "supergroup"}), F.text.regexp(r"^[A-HJ-NP-Z2-9]{6,10}$"))
 async def group_connect_code(message: Message, session: AsyncSession) -> None:
+    """Connect a class group only after independently verifying both admins."""
+    if message.from_user is None or message.text is None:
+        return
     code = message.text.strip().upper()
     cls = await session.scalar(
-        select(ClassGroup).where(
+        select(ClassGroup)
+        .where(
             ClassGroup.group_link_code_hash == hash_code(code),
             ClassGroup.is_active.is_(True),
         )
+        .with_for_update()
     )
     if cls is None:
-        return  # ignore unrelated messages
-    from datetime import datetime, timezone
+        return
 
-    if cls.group_link_code_expires_at and cls.group_link_code_expires_at < datetime.now(timezone.utc):
+    user = await get_user(session, message.from_user, private=False)
+    if not await is_class_manager(session, user, cls.id):
+        await message.answer("فقط مدیر همین کلاس می‌تواند کد اتصال را فعال کند.")
+        return
+    expires_at = cls.group_link_code_expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at is not None and expires_at < datetime.now(timezone.utc):
         await message.answer("کد اتصال منقضی شده است. لطفاً از مدیر کلاس کد جدید دریافت کنید.")
         return
+
+    try:
+        bot_user = await message.bot.me()
+        bot_member = await message.bot.get_chat_member(message.chat.id, bot_user.id)
+        requester_member = await message.bot.get_chat_member(message.chat.id, message.from_user.id)
+    except Exception:
+        logger.warning("Could not verify group connection permissions for chat %s", message.chat.id, exc_info=True)
+        await message.answer("امکان بررسی مدیران گروه وجود ندارد. مطمئن شوید ربات در گروه مدیر است و دوباره تلاش کنید.")
+        return
+
+    if bot_member.status not in {"administrator", "creator"}:
+        await message.answer("برای اتصال کلاس، ابتدا ربات را در این گروه مدیر کنید.")
+        return
+    if requester_member.status not in {"administrator", "creator"}:
+        await message.answer("فقط مالک یا مدیر همین گروه می‌تواند آن را به کلاس متصل کند.")
+        return
+
+    conflict = await session.scalar(
+        select(ClassGroup.id).where(
+            ClassGroup.group_chat_id == message.chat.id,
+            ClassGroup.id != cls.id,
+        )
+    )
+    if conflict is not None:
+        await message.answer("این گروه قبلاً به کلاس دیگری متصل شده است.")
+        return
+    if cls.group_chat_id is not None and cls.group_chat_id != message.chat.id:
+        await message.answer("این کلاس از قبل به گروه دیگری متصل است. ابتدا اتصال قبلی را از مدیریت کلاس لغو کنید.")
+        return
+
     cls.group_chat_id = message.chat.id
     cls.group_chat_title = message.chat.title
     cls.group_link_code_hash = None
     cls.group_link_code_expires_at = None
+    await session.flush()
+    await session.commit()
     await message.answer(f"✅ گروه به کلاس <b>{escape(cls.name)}</b> متصل شد.")
 
 
@@ -679,7 +775,7 @@ async def school_name(message: Message, state: FSMContext) -> None:
 async def school_year(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     if not user.is_platform_admin:
         await message.answer("این عملیات فقط برای مدیر سامانه مجاز است.")
         await state.clear()
@@ -734,7 +830,7 @@ async def class_name(message: Message, state: FSMContext, session: AsyncSession)
     if message.text == "❌ انصراف":
         return
     data = await state.get_data()
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     school_id = data["school_id"]
     if not await is_school_admin(session, user, school_id):
         await message.answer("شما دسترسی انجام این عملیات را ندارید.")
@@ -774,7 +870,7 @@ async def subject_name(message: Message, state: FSMContext, session: AsyncSessio
     if message.text == "❌ انصراف":
         return
     data = await state.get_data()
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     class_id = data["class_id"]
     if not await is_class_manager(session, user, class_id):
         await message.answer("این عملیات فقط برای مدیر کلاس مجاز است.")
@@ -787,6 +883,7 @@ async def subject_name(message: Message, state: FSMContext, session: AsyncSessio
         return
     _, _, school = ctx
     subj = await add_subject(session, class_id, school.id, message.text.strip())
+    await session.commit()
     await state.clear()
     await message.answer(
         f"✅ درس <b>{escape(subj.name)}</b> اضافه شد.",
@@ -798,11 +895,25 @@ async def subject_name(message: Message, state: FSMContext, session: AsyncSessio
 
 
 @router.callback_query(TimetableForm.day, F.data.startswith("day:"))
-async def tt_day(callback: CallbackQuery, state: FSMContext) -> None:
+async def tt_day(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    if not data.get("class_id") or not await is_class_manager(session, user, data["class_id"]):
+        await state.clear()
+        await callback.answer("دسترسی مدیریت این کلاس را ندارید.", show_alert=True)
+        return
+    try:
+        weekday = int(callback.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await callback.answer("روز انتخاب‌شده معتبر نیست.", show_alert=True)
+        return
+    if weekday not in range(7):
+        await callback.answer("روز انتخاب‌شده معتبر نیست.", show_alert=True)
+        return
     await delete_panel(callback.message)
-    await state.update_data(weekday=int(callback.data.split(":")[1]))
+    await state.update_data(weekday=weekday)
     await state.set_state(TimetableForm.period)
-    await callback.message.answer("شماره زنگ (۱، ۲، ۳، …):", reply_markup=cancel_kb())
+    await callback.message.answer("شماره زنگ (۱ تا ۲۰):", reply_markup=cancel_kb())
     await callback.answer()
 
 
@@ -815,7 +926,15 @@ async def tt_period(message: Message, state: FSMContext, session: AsyncSession) 
     except ValueError:
         await message.answer("لطفاً شماره زنگ را به‌صورت عدد وارد کنید.")
         return
+    if not 1 <= period <= 20:
+        await message.answer("شماره زنگ باید بین ۱ تا ۲۰ باشد.")
+        return
     data = await state.get_data()
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
+    if not data.get("class_id") or not await is_class_manager(session, user, data["class_id"]):
+        await state.clear()
+        await message.answer("این عملیات فقط برای مدیر کلاس مجاز است.")
+        return
     await state.update_data(period=period)
     subs = await _subjects(session, data["class_id"])
     if not subs:
@@ -827,9 +946,26 @@ async def tt_period(message: Message, state: FSMContext, session: AsyncSession) 
 
 
 @router.callback_query(TimetableForm.subject, F.data.startswith("subj:"))
-async def tt_subject(callback: CallbackQuery, state: FSMContext) -> None:
+async def tt_subject(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    if not data.get("class_id") or not await is_class_manager(session, user, data["class_id"]):
+        await state.clear()
+        await callback.answer("دسترسی مدیریت این کلاس را ندارید.", show_alert=True)
+        return
+    try:
+        subject_id = int(callback.data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        await callback.answer("درس انتخاب‌شده معتبر نیست.", show_alert=True)
+        return
+    linked = await session.scalar(select(ClassSubject.id).where(
+        ClassSubject.class_id == data["class_id"], ClassSubject.subject_id == subject_id
+    ))
+    if linked is None:
+        await callback.answer("این درس متعلق به کلاس انتخاب‌شده نیست.", show_alert=True)
+        return
     await delete_panel(callback.message)
-    await state.update_data(subject_id=int(callback.data.split(":")[1]))
+    await state.update_data(subject_id=subject_id)
     await state.set_state(TimetableForm.time_range)
     await callback.message.answer(
         "ساعت شروع-پایان (مثلاً 08:00-08:45):", reply_markup=cancel_kb()
@@ -846,15 +982,29 @@ async def tt_time(message: Message, state: FSMContext, session: AsyncSession) ->
         sh, sm = map(int, start_s.split(":"))
         eh, em = map(int, end_s.split(":"))
         starts, ends = dtime(sh, sm), dtime(eh, em)
+        if ends <= starts:
+            raise ValueError("ساعت پایان باید بعد از ساعت شروع باشد.")
     except (ValueError, IndexError, TypeError):
         await message.answer("قالب زمان صحیح: 08:00-08:45")
         return
 
     data = await state.get_data()
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     class_id = data["class_id"]
     if not await is_class_manager(session, user, class_id):
         await message.answer("این عملیات فقط برای مدیر کلاس مجاز است.")
+        await state.clear()
+        return
+    if data.get("weekday") not in range(7) or not 1 <= int(data.get("period", 0)) <= 20:
+        await message.answer("روز یا شماره زنگ انتخاب‌شده معتبر نیست.")
+        await state.clear()
+        return
+    linked = await session.scalar(select(ClassSubject.id).where(
+        ClassSubject.class_id == class_id,
+        ClassSubject.subject_id == data.get("subject_id"),
+    ))
+    if linked is None:
+        await message.answer("درس انتخاب‌شده متعلق به این کلاس نیست.")
         await state.clear()
         return
 
@@ -881,6 +1031,7 @@ async def tt_time(message: Message, state: FSMContext, session: AsyncSession) ->
             )
         )
     day = WEEK_NAMES[data["weekday"]]
+    await session.commit()
     await state.clear()
     await message.answer(
         f"✅ {day} زنگ {data['period']} تنظیم شد.",

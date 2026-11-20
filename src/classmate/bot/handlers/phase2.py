@@ -2,6 +2,7 @@
 
 import logging
 from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 from html import escape
 
 from aiogram import F, Router
@@ -13,10 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for, render_panel
 from classmate.bot.keyboards import cancel_kb, class_picker, education_result_kb
 from classmate.bot.states import EvaluationForm, PollCreateForm, ReviewSubmissionForm, SubmissionForm
-from classmate.core.enums import Role
-from classmate.db.models import Attendance, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, Subject, User
+from classmate.db.models import Attendance, ClassMembership, ClassSubject, Grade, Homework, HomeworkSubmission, Poll, PollOption, Subject, User
 from classmate.domain.dates import jalali_date
-from classmate.services.permissions import is_class_manager, user_can_access_class
+from classmate.services.outbox import enqueue_telegram_message
+from classmate.services.permissions import get_class_with_school, is_class_manager, user_can_access_class
 from classmate.services.phase2 import (
     active_polls,
     answer_poll,
@@ -42,7 +43,7 @@ def color_button(prefix: str, text: str, callback: str) -> InlineKeyboardButton:
 async def submit_entry(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = await classes_for_user(session, user)
     if not classes:
         await message.answer("ابتدا با کد دعوت عضو یک کلاس شوید.")
@@ -57,6 +58,10 @@ async def submit_entry(message: Message, session: AsyncSession) -> None:
 
 
 async def _show_homeworks(message: Message, session: AsyncSession, class_id: int) -> None:
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
+    if not await user_can_access_class(session, user, class_id):
+        await message.answer("دسترسی شما به این کلاس فعال نیست.")
+        return
     rows = await approved_homeworks_for_student(session, class_id)
     if not rows:
         await render_panel(
@@ -79,7 +84,7 @@ async def _show_homeworks(message: Message, session: AsyncSession, class_id: int
 async def submit_homework(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     homework_id = int(callback.data.split(":")[2])
     homework = await session.get(Homework, homework_id)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     if homework is None or not await user_can_access_class(session, user, homework.class_id):
         await callback.answer("این تکلیف برای شما در دسترس نیست.", show_alert=True)
         return
@@ -94,7 +99,7 @@ async def submit_homework(callback: CallbackQuery, state: FSMContext, session: A
 async def submit_text(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         await state.clear()
-        user = await get_user(session, message.from_user)
+        user = await get_user(session, message.from_user, private=message.chat.type == "private")
         await message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
         return
     await _save_answer(message, state, session, text=message.text)
@@ -111,11 +116,21 @@ async def submit_photo(message: Message, state: FSMContext, session: AsyncSessio
 
 
 async def _save_answer(message: Message, state: FSMContext, session: AsyncSession, text: str | None = None, file_id: str | None = None, file_type: str | None = None) -> None:
+    if message.chat.type != "private":
+        await message.answer("ارسال پاسخ تکلیف فقط در گفت‌وگوی خصوصی ربات انجام می‌شود.")
+        return
     data = await state.get_data()
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=True)
+    homework_id = data.get("homework_id")
+    homework = await session.get(Homework, homework_id) if homework_id else None
+    if homework is None or not await user_can_access_class(session, user, homework.class_id):
+        await state.clear()
+        await message.answer("دسترسی شما به این تکلیف فعال نیست.", reply_markup=await menu_for(session, user))
+        return
     try:
-        await save_submission(session, data["homework_id"], user.id, text=text, file_id=file_id, file_type=file_type)
-    except ValueError as exc:
+        await save_submission(session, homework_id, user.id, text=text, file_id=file_id, file_type=file_type)
+        await session.commit()
+    except (ValueError, PermissionError) as exc:
         await state.clear()
         await message.answer(str(exc), reply_markup=await menu_for(session, user))
         return
@@ -127,7 +142,7 @@ async def _save_answer(message: Message, state: FSMContext, session: AsyncSessio
 async def my_grades(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     rows = await student_grades(session, user.id)
     if not rows:
         await render_panel(message, "📊 هنوز نمره‌ای برای شما ثبت نشده است.", education_result_kb())
@@ -149,7 +164,7 @@ async def my_grades(message: Message, session: AsyncSession) -> None:
 async def my_attendance(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = await classes_for_user(session, user)
     rows = await student_attendance(session, user.id, [row[0] for row in classes])
     if not rows:
@@ -169,7 +184,7 @@ async def my_attendance(message: Message, session: AsyncSession) -> None:
 async def polls(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = await classes_for_user(session, user)
     rows = await active_polls(session, [row[0] for row in classes])
     if not rows:
@@ -187,6 +202,17 @@ async def polls(message: Message, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("p2:poll:"))
 async def poll_open(callback: CallbackQuery, session: AsyncSession) -> None:
     poll_id = int(callback.data.split(":")[2])
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    poll = await session.get(Poll, poll_id)
+    if poll is None or not await user_can_access_class(session, user, poll.class_id):
+        await callback.answer("این نظرسنجی برای شما در دسترس نیست.", show_alert=True)
+        return
+    closes_at = poll.closes_at
+    if closes_at is not None and closes_at.tzinfo is None:
+        closes_at = closes_at.replace(tzinfo=timezone.utc)
+    if not poll.is_active or (closes_at is not None and closes_at < datetime.now(timezone.utc)):
+        await callback.answer("مهلت این نظرسنجی به پایان رسیده است.", show_alert=True)
+        return
     options = await poll_options(session, poll_id)
     if not options:
         await delete_panel(callback.message)
@@ -195,7 +221,6 @@ async def poll_open(callback: CallbackQuery, session: AsyncSession) -> None:
         return
     buttons = [[color_button("🟢", option.label, f"p2:vote:{poll_id}:{option.id}")] for option in options]
     buttons.append([color_button("🔴", "بستن", "p2:cancel")])
-    poll = await session.get(Poll, poll_id)
     await delete_panel(callback.message)
     await callback.message.answer(f"🗳 <b>{escape(poll.question if poll else 'نظرسنجی')}</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     await callback.answer()
@@ -204,9 +229,11 @@ async def poll_open(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("p2:vote:"))
 async def poll_vote(callback: CallbackQuery, session: AsyncSession) -> None:
     _, _, poll_id_s, option_id_s = callback.data.split(":")
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     poll_id, option_id = int(poll_id_s), int(option_id_s)
     ok = await answer_poll(session, poll_id, user.id, option_id)
+    if ok:
+        await session.commit()
     await delete_panel(callback.message)
     if ok:
         option = await session.get(PollOption, option_id)
@@ -221,14 +248,14 @@ async def poll_vote(callback: CallbackQuery, session: AsyncSession) -> None:
 async def phase2_cancel(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await state.clear()
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     await callback.message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
     await callback.answer()
 
 
 @router.message(F.text.in_({"🆘 پشتیبانی", "پشتیبانی"}))
 async def support(message: Message, session: AsyncSession) -> None:
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     await message.answer(
         "🆘 <b>مرکز پشتیبانی ClassMate 2</b>\n\n"
         "برای گزارش خطا، پیشنهاد قابلیت یا دریافت راهنمایی، با سازنده ربات در ارتباط باشید:\n\n"
@@ -240,7 +267,7 @@ async def support(message: Message, session: AsyncSession) -> None:
 
 @router.message(F.text == "👨‍🏫 ارزیابی کلاس")
 async def manager_evaluation(message: Message, session: AsyncSession) -> None:
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = [row for row in await classes_for_user(session, user) if await is_class_manager(session, user, row[0])]
     if not classes:
         await message.answer("شما مدیر هیچ کلاسی نیستید.")
@@ -254,7 +281,7 @@ async def manager_evaluation(message: Message, session: AsyncSession) -> None:
 
 @router.message(F.text == "📝 بررسی پاسخ‌ها")
 async def review_entry(message: Message, session: AsyncSession) -> None:
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = [row for row in await classes_for_user(session, user) if await is_class_manager(session, user, row[0])]
     if not classes:
         await message.answer("شما مدیر هیچ کلاسی نیستید.")
@@ -267,6 +294,10 @@ async def review_entry(message: Message, session: AsyncSession) -> None:
 
 
 async def submissions_panel(message: Message, session: AsyncSession, class_id: int) -> None:
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
+    if not await is_class_manager(session, user, class_id):
+        await message.answer("فقط مدیر کلاس می‌تواند پاسخ‌های ارسالی را بررسی کند.")
+        return
     rows = list((await session.execute(
         select(HomeworkSubmission, Homework, Subject, User)
         .join(Homework, HomeworkSubmission.homework_id == Homework.id)
@@ -292,7 +323,7 @@ async def submissions_panel(message: Message, session: AsyncSession, class_id: i
 @router.callback_query(F.data.startswith("p2:review:"))
 async def review_open(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     submission = await session.get(HomeworkSubmission, int(callback.data.split(":")[2]))
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     if submission is None:
         await callback.answer("پاسخ موردنظر پیدا نشد.", show_alert=True)
         return
@@ -300,9 +331,30 @@ async def review_open(callback: CallbackQuery, state: FSMContext, session: Async
     if homework is None or not await is_class_manager(session, user, homework.class_id):
         await callback.answer("دسترسی بررسی این پاسخ را ندارید.", show_alert=True)
         return
-    content = submission.text or (f"فایل {submission.file_type} دریافت شده است." if submission.file_id else "بدون محتوای متنی")
+    content = submission.text or ""
     await delete_panel(callback.message)
-    await callback.message.answer(f"📝 <b>{escape(homework.title)}</b>\n\n{escape(content)}\n\nبازخورد مدیر را ارسال کنید:", reply_markup=cancel_kb())
+    if submission.file_id:
+        try:
+            if submission.file_type == "photo":
+                await callback.message.answer_photo(
+                    submission.file_id,
+                    caption=f"📎 فایل تصویری پاسخ تکلیف «{escape(homework.title)}»",
+                )
+            else:
+                await callback.message.answer_document(
+                    submission.file_id,
+                    caption=f"📎 فایل پاسخ تکلیف «{escape(homework.title)}»",
+                )
+        except Exception:
+            logger.exception("Could not deliver submission file to reviewer", extra={"submission_id": submission.id})
+            await callback.answer("ارسال فایل به دبیر ناموفق بود؛ دوباره تلاش کنید.", show_alert=True)
+            return
+    if not content and not submission.file_id:
+        content = "بدون متن یا فایل"
+    await callback.message.answer(
+        f"📝 <b>{escape(homework.title)}</b>\n\n{escape(content) if content else 'فایل پیوست در پیام قبلی ارسال شد.'}\n\nبازخورد مدیر را ارسال کنید:",
+        reply_markup=cancel_kb(),
+    )
     await state.update_data(review_submission_id=submission.id)
     await state.set_state(ReviewSubmissionForm.feedback)
     await callback.answer()
@@ -312,10 +364,10 @@ async def review_open(callback: CallbackQuery, state: FSMContext, session: Async
 async def review_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         await state.clear()
-        user = await get_user(session, message.from_user)
+        user = await get_user(session, message.from_user, private=message.chat.type == "private")
         await message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     data = await state.get_data()
     submission = await session.get(HomeworkSubmission, data["review_submission_id"])
     if submission is None:
@@ -331,18 +383,33 @@ async def review_submit(message: Message, state: FSMContext, session: AsyncSessi
     submission.status = "reviewed"
     submission.reviewed_by = user.id
     submission.reviewed_at = datetime.now(timezone.utc)
-    await session.flush()
     student = await session.get(User, submission.student_id)
-    if student and student.private_chat_started:
-        try:
-            await message.bot.send_message(student.telegram_id, f"📝 بازخورد تکلیف «{escape(homework.title)}»:\n{escape(submission.feedback)}")
-        except Exception:
-            logger.warning("Could not send submission feedback to student", exc_info=True)
+    if student and student.is_active and student.private_chat_started:
+        await enqueue_telegram_message(
+            session,
+            target_type="private",
+            target_chat_id=student.telegram_id,
+            recipient_user_id=student.id,
+            class_id=homework.class_id,
+            entity_type="homework",
+            entity_id=homework.id,
+            expected_record_status="APPROVED",
+            text=f"📝 بازخورد تکلیف «{escape(homework.title)}»:\n{escape(submission.feedback)}",
+            idempotency_key=f"homework-feedback:{submission.id}:{submission.reviewed_at.isoformat()}",
+        )
+    await session.commit()
     await state.clear()
-    await message.answer("✅ بازخورد ثبت و برای دانش‌آموز ارسال شد.", reply_markup=await menu_for(session, user))
+    await message.answer(
+        "✅ بازخورد ثبت شد و برای ارسال به دانش‌آموز در صف قرار گرفت.",
+        reply_markup=await menu_for(session, user),
+    )
 
 
 async def evaluation_panel(message: Message, session: AsyncSession, state: FSMContext, class_id: int) -> None:
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
+    if not await is_class_manager(session, user, class_id):
+        await message.answer("فقط مدیر کلاس می‌تواند ارزیابی انجام دهد.")
+        return
     await state.update_data(evaluation_class_id=class_id)
     await render_panel(
         message,
@@ -358,7 +425,14 @@ async def evaluation_panel(message: Message, session: AsyncSession, state: FSMCo
 
 
 @router.callback_query(F.data.startswith("p2:evaluate:"))
-async def evaluation_kind(callback: CallbackQuery, state: FSMContext) -> None:
+async def evaluation_kind(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    class_id = data.get("evaluation_class_id")
+    if not class_id or not await is_class_manager(session, user, class_id):
+        await state.clear()
+        await callback.answer("دسترسی ارزیابی این کلاس را ندارید.", show_alert=True)
+        return
     kind = callback.data.split(":")[2]
     await state.update_data(evaluation_kind=kind)
     await state.set_state(EvaluationForm.data)
@@ -391,7 +465,7 @@ async def evaluation_kind(callback: CallbackQuery, state: FSMContext) -> None:
 async def poll_question(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         await state.clear()
-        user = await get_user(session, message.from_user)
+        user = await get_user(session, message.from_user, private=message.chat.type == "private")
         await message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
         return
     await state.update_data(poll_question=message.text.strip()[:500])
@@ -403,12 +477,12 @@ async def poll_question(message: Message, state: FSMContext, session: AsyncSessi
 async def poll_options_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         await state.clear()
-        user = await get_user(session, message.from_user)
+        user = await get_user(session, message.from_user, private=message.chat.type == "private")
         await message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
         return
     options = [value.strip()[:180] for value in message.text.split("|") if value.strip()]
     data = await state.get_data()
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     if len(options) < 2 or not data.get("evaluation_class_id") or not await is_class_manager(session, user, data["evaluation_class_id"]):
         await message.answer("حداقل دو گزینه وارد کنید و مطمئن شوید مدیر کلاس هستید.")
         return
@@ -418,6 +492,7 @@ async def poll_options_submit(message: Message, state: FSMContext, session: Asyn
     for position, label in enumerate(options):
         session.add(PollOption(poll_id=poll.id, label=label, position=position))
     await session.flush()
+    await session.commit()
     await state.clear()
     await message.answer("✅ نظرسنجی با موفقیت ایجاد شد.", reply_markup=await menu_for(session, user))
 
@@ -426,11 +501,11 @@ async def poll_options_submit(message: Message, state: FSMContext, session: Asyn
 async def evaluation_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         await state.clear()
-        user = await get_user(session, message.from_user)
+        user = await get_user(session, message.from_user, private=message.chat.type == "private")
         await message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
         return
     data = await state.get_data()
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     class_id = data.get("evaluation_class_id")
     if not class_id or not await is_class_manager(session, user, class_id):
         await state.clear()
@@ -439,21 +514,26 @@ async def evaluation_submit(message: Message, state: FSMContext, session: AsyncS
     parts = [part.strip() for part in message.text.split("|")]
     try:
         student_id = int(parts[0])
-        membership = await session.scalar(select(ClassMembership).where(
+        membership = await session.scalar(select(ClassMembership.id).where(
             ClassMembership.class_id == class_id, ClassMembership.user_id == student_id,
             ClassMembership.is_active.is_(True)))
-        if membership is None:
-            raise ValueError("دانش‌آموز عضو این کلاس نیست.")
+        student = await session.scalar(select(User.id).where(User.id == student_id, User.is_active.is_(True)))
+        if membership is None or student is None:
+            raise ValueError("دانش‌آموز فعال عضو این کلاس نیست.")
         if data["evaluation_kind"] == "attendance":
             if len(parts) < 2 or parts[1] not in {"present", "absent", "late", "excused"}:
                 raise ValueError("وضعیت باید یکی از present، absent، late یا excused باشد.")
+            class_context = await get_class_with_school(session, class_id)
+            if class_context is None:
+                raise ValueError("کلاس انتخاب‌شده در دسترس نیست.")
+            local_today = datetime.now(ZoneInfo(class_context[2].timezone)).date()
             existing = await session.scalar(select(Attendance).where(
                 Attendance.class_id == class_id, Attendance.student_id == student_id,
-                Attendance.attendance_date == date.today()))
+                Attendance.attendance_date == local_today))
             if existing:
                 existing.status, existing.note, existing.marked_by = parts[1], " | ".join(parts[2:]) or None, user.id
             else:
-                session.add(Attendance(class_id=class_id, student_id=student_id, attendance_date=date.today(), status=parts[1], note=" | ".join(parts[2:]) or None, marked_by=user.id))
+                session.add(Attendance(class_id=class_id, student_id=student_id, attendance_date=local_today, status=parts[1], note=" | ".join(parts[2:]) or None, marked_by=user.id))
             result = "حضور‌وغیاب امروز ثبت شد."
         else:
             if len(parts) < 4:
@@ -461,14 +541,18 @@ async def evaluation_submit(message: Message, state: FSMContext, session: AsyncS
             subject_id, score, max_score = int(parts[1]), float(parts[2]), float(parts[3])
             if score < 0 or max_score <= 0 or score > max_score:
                 raise ValueError("مقدار نمره معتبر نیست.")
-            subject = await session.get(Subject, subject_id)
-            if subject is None:
-                raise ValueError("درس موردنظر پیدا نشد.")
+            linked_subject = await session.scalar(select(ClassSubject.id).where(
+                ClassSubject.class_id == class_id,
+                ClassSubject.subject_id == subject_id,
+            ))
+            if linked_subject is None:
+                raise ValueError("درس انتخاب‌شده متعلق به این کلاس نیست.")
             session.add(Grade(class_id=class_id, student_id=student_id, subject_id=subject_id, source_type="manual", score=score, max_score=max_score, feedback=" | ".join(parts[4:]) or None, graded_by=user.id))
             result = "نمره و بازخورد با موفقیت ثبت شد."
         await session.flush()
     except (ValueError, TypeError) as exc:
         await message.answer(f"⚠️ {exc}\n\nلطفاً قالب را دقیق رعایت کنید.")
         return
+    await session.commit()
     await state.clear()
     await message.answer(f"✅ {result}", reply_markup=await menu_for(session, user))

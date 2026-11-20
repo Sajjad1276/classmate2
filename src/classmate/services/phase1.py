@@ -3,85 +3,161 @@
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.core.enums import EntityType, RecordStatus
+from classmate.core.enums import EntityType, OutboxStatus, RecordStatus
 from classmate.db.models import (
+    AcademicYear,
     Announcement,
     ClassGroup,
-    ClassMembership,
     DailyReport,
     Exam,
     Homework,
     NotificationPreference,
+    School,
     Subject,
+    TelegramOutbox,
     TimetableEntry,
     User,
 )
 from classmate.services.permissions import is_class_manager
+from classmate.domain.dates import persian_weekday
 
 
-async def dashboard_data(session: AsyncSession, class_ids: list[int], today: date) -> dict:
+async def dashboard_data(session: AsyncSession, class_ids: list[int], today: date | None = None) -> dict:
     if not class_ids:
         return {"homework": [], "exams": [], "today_lessons": [], "announcements": []}
-    horizon = today + timedelta(days=7)
-    homework = list((await session.execute(
-        select(Homework, Subject, ClassGroup)
-        .join(Subject, Homework.subject_id == Subject.id)
-        .join(ClassGroup, Homework.class_id == ClassGroup.id)
-        .where(Homework.class_id.in_(class_ids), Homework.status == RecordStatus.APPROVED,
-               Homework.due_on >= today, Homework.due_on <= horizon)
-        .order_by(Homework.due_on, Homework.created_at)
-        .limit(10)
-    )).all())
-    exams = list((await session.execute(
-        select(Exam, Subject, ClassGroup)
-        .join(Subject, Exam.subject_id == Subject.id)
-        .join(ClassGroup, Exam.class_id == ClassGroup.id)
-        .where(Exam.class_id.in_(class_ids), Exam.status == RecordStatus.APPROVED,
-               Exam.scheduled_at >= datetime.now(timezone.utc),
-               Exam.scheduled_at <= datetime.now(timezone.utc) + timedelta(days=7))
-        .order_by(Exam.scheduled_at)
-        .limit(10)
-    )).all())
-    announcements = list((await session.execute(
-        select(Announcement, ClassGroup)
-        .join(ClassGroup, Announcement.class_id == ClassGroup.id)
-        .where(Announcement.class_id.in_(class_ids), Announcement.is_active.is_(True))
-        .order_by(Announcement.published_at.desc()).limit(5)
-    )).all())
+
+    contexts = (
+        await session.execute(
+            select(ClassGroup.id, School.timezone)
+            .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+            .join(School, AcademicYear.school_id == School.id)
+            .where(ClassGroup.id.in_(class_ids), ClassGroup.is_active.is_(True), School.is_active.is_(True))
+        )
+    ).all()
+    homework_rows = []
+    exam_rows = []
+    lesson_rows = []
+    announcement_rows = []
+    now_utc = datetime.now(timezone.utc)
+
+    for class_id, timezone_name in contexts:
+        zone = ZoneInfo(timezone_name)
+        now_local = datetime.now(zone)
+        local_today = today or now_local.date()
+        local_horizon = local_today + timedelta(days=7)
+        exam_horizon = now_local + timedelta(days=7)
+
+        homework_rows.extend((await session.execute(
+            select(Homework, Subject, ClassGroup)
+            .join(Subject, Homework.subject_id == Subject.id)
+            .join(ClassGroup, Homework.class_id == ClassGroup.id)
+            .where(
+                Homework.class_id == class_id,
+                Homework.status == RecordStatus.APPROVED,
+                Homework.due_on >= local_today,
+                Homework.due_on <= local_horizon,
+            )
+            .order_by(Homework.due_on, Homework.created_at)
+            .limit(10)
+        )).all())
+
+        exam_rows.extend((await session.execute(
+            select(Exam, Subject, ClassGroup)
+            .join(Subject, Exam.subject_id == Subject.id)
+            .join(ClassGroup, Exam.class_id == ClassGroup.id)
+            .where(
+                Exam.class_id == class_id,
+                Exam.status == RecordStatus.APPROVED,
+                Exam.scheduled_at >= now_local,
+                Exam.scheduled_at <= exam_horizon,
+            )
+            .order_by(Exam.scheduled_at)
+            .limit(10)
+        )).all())
+
+        lesson_rows.extend((await session.execute(
+            select(TimetableEntry, Subject, ClassGroup)
+            .join(Subject, TimetableEntry.subject_id == Subject.id)
+            .join(ClassGroup, TimetableEntry.class_id == ClassGroup.id)
+            .where(
+                TimetableEntry.class_id == class_id,
+                TimetableEntry.weekday == persian_weekday(local_today),
+                or_(TimetableEntry.valid_from.is_(None), TimetableEntry.valid_from <= local_today),
+                or_(TimetableEntry.valid_until.is_(None), TimetableEntry.valid_until >= local_today),
+            )
+            .order_by(TimetableEntry.period)
+            .limit(20)
+        )).all())
+
+        announcement_rows.extend((await session.execute(
+            select(Announcement, ClassGroup)
+            .join(ClassGroup, Announcement.class_id == ClassGroup.id)
+            .where(
+                Announcement.class_id == class_id,
+                Announcement.is_active.is_(True),
+                or_(Announcement.expires_at.is_(None), Announcement.expires_at > now_utc),
+            )
+            .order_by(Announcement.published_at.desc())
+            .limit(5)
+        )).all())
+
+    homework_rows.sort(key=lambda row: (row[0].due_on or date.max, row[0].created_at))
+    exam_rows.sort(key=lambda row: row[0].scheduled_at)
+    lesson_rows.sort(key=lambda row: (row[2].name, row[0].weekday, row[0].period))
+    announcement_rows.sort(key=lambda row: row[0].published_at, reverse=True)
     return {
-        "homework": homework,
-        "exams": exams,
-        "today_lessons": [],
-        "announcements": announcements,
+        "homework": homework_rows[:10],
+        "exams": exam_rows[:10],
+        "today_lessons": lesson_rows[:20],
+        "announcements": announcement_rows[:5],
     }
 
 
-async def calendar_rows(session: AsyncSession, class_id: int, start: date, days: int = 7):
+async def calendar_rows(
+    session: AsyncSession,
+    class_id: int,
+    start: date,
+    days: int = 7,
+    timezone_name: str = "Asia/Tehran",
+):
+    zone = ZoneInfo(timezone_name)
     end = start + timedelta(days=days)
+    start_at = datetime.combine(start, datetime.min.time(), tzinfo=zone)
+    end_at = datetime.combine(end, datetime.min.time(), tzinfo=zone)
     timetable = list((await session.execute(
         select(TimetableEntry, Subject)
         .join(Subject, TimetableEntry.subject_id == Subject.id)
-        .where(TimetableEntry.class_id == class_id)
+        .where(
+            TimetableEntry.class_id == class_id,
+            or_(TimetableEntry.valid_until.is_(None), TimetableEntry.valid_until >= start),
+            or_(TimetableEntry.valid_from.is_(None), TimetableEntry.valid_from < end),
+        )
         .order_by(TimetableEntry.weekday, TimetableEntry.period)
     )).all())
     exams = list((await session.execute(
         select(Exam, Subject).join(Subject, Exam.subject_id == Subject.id)
-        .where(Exam.class_id == class_id, Exam.status == RecordStatus.APPROVED,
-               Exam.scheduled_at >= datetime.combine(start, datetime.min.time()),
-               Exam.scheduled_at < datetime.combine(end, datetime.min.time()))
+        .where(
+            Exam.class_id == class_id,
+            Exam.status == RecordStatus.APPROVED,
+            Exam.scheduled_at >= start_at,
+            Exam.scheduled_at < end_at,
+        )
         .order_by(Exam.scheduled_at)
     )).all())
     homeworks = list((await session.execute(
         select(Homework, Subject).join(Subject, Homework.subject_id == Subject.id)
-        .where(Homework.class_id == class_id, Homework.status == RecordStatus.APPROVED,
-               Homework.due_on >= start, Homework.due_on < end)
+        .where(
+            Homework.class_id == class_id,
+            Homework.status == RecordStatus.APPROVED,
+            Homework.due_on >= start,
+            Homework.due_on < end,
+        )
         .order_by(Homework.due_on)
     )).all())
     return timetable, exams, homeworks
-
 
 async def search_records(session: AsyncSession, class_ids: list[int], query: str):
     term = f"%{query.strip()}%"
@@ -123,6 +199,22 @@ async def archive_record(session: AsyncSession, entity_type: str, entity_id: int
     if record.status == RecordStatus.CANCELLED:
         return False, "این اطلاعات قبلاً آرشیو شده است."
     record.status = RecordStatus.CANCELLED
+    await session.execute(
+        update(TelegramOutbox)
+        .where(
+            TelegramOutbox.entity_type == entity_type,
+            TelegramOutbox.entity_id == entity_id,
+            TelegramOutbox.status.in_(
+                [OutboxStatus.PENDING, OutboxStatus.RETRY, OutboxStatus.PROCESSING]
+            ),
+        )
+        .values(status=OutboxStatus.CANCELLED, locked_at=None)
+    )
+    if entity_type in {EntityType.HOMEWORK.value, EntityType.EXAM.value}:
+        from classmate.services.records import set_reminders_cancelled
+
+        await set_reminders_cancelled(session, entity_type, entity_id)
+    await session.flush()
     return True, "اطلاعات با موفقیت آرشیو شد."
 
 

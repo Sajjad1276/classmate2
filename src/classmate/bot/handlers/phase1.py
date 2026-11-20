@@ -1,7 +1,8 @@
 """Phase-one product features exposed through the button-first UX."""
 
 import logging
-from datetime import date
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from html import escape
 
 from aiogram import F, Router
@@ -16,7 +17,7 @@ from classmate.bot.states import AnnouncementForm, EditRecordForm, JoinForm, Sea
 from classmate.domain.dates import jalali_date, jalali_datetime, persian_weekday
 from classmate.core.enums import RecordStatus
 from classmate.db.models import ClassGroup, DailyReport, Exam, Homework, Subject
-from classmate.services.permissions import is_class_manager
+from classmate.services.permissions import get_class_with_school, is_class_manager, user_can_access_class
 from classmate.services.phase1 import (
     calendar_rows,
     create_announcement,
@@ -70,7 +71,14 @@ async def _render_dashboard(message: Message, session: AsyncSession, user) -> No
         )
         return
     try:
-        data = await dashboard_data(session, [row[0] for row in classes], date.today())
+        data = await dashboard_data(session, [row[0] for row in classes])
+        timezone_by_class = {}
+        for class_id, _class_name, _school_name in classes:
+            context = await get_class_with_school(session, class_id)
+            if context is not None:
+                timezone_by_class[class_id] = context[2].timezone
+        first_timezone = timezone_by_class.get(classes[0][0], "Asia/Tehran")
+        local_today = datetime.now(ZoneInfo(first_timezone)).date()
     except Exception:
         logger.exception("Could not load dashboard data", extra={"user_id": user.id})
         await render_panel(
@@ -82,7 +90,7 @@ async def _render_dashboard(message: Message, session: AsyncSession, user) -> No
         return
     lines = [
         "🏠 <b>داشبورد من</b>",
-        f"{jalali_date(date.today())}  ·  {len(classes)} کلاس فعال",
+        f"{jalali_date(local_today)}  ·  {len(classes)} کلاس فعال",
         "",
         f"🏫 {len(data['today_lessons'])} کلاس امروز  ·  📚 {len(data['homework'])} تکلیف  ·  📝 {len(data['exams'])} امتحان",
         f"📣 {len(data['announcements'])} اطلاعیه فعال",
@@ -103,7 +111,7 @@ async def _render_dashboard(message: Message, session: AsyncSession, user) -> No
     if data["exams"]:
         lines.append(f"\n📝 <b>امتحانات پیش‌رو</b> ({len(data['exams'])})")
         for exam, subject, cls in data["exams"][:5]:
-            lines.append(f"• {escape(subject.name)} — {escape(exam.title)} | {jalali_datetime(exam.scheduled_at, 'Asia/Tehran')} | {escape(cls.name)}")
+            lines.append(f"• {escape(subject.name)} — {escape(exam.title)} | {jalali_datetime(exam.scheduled_at, timezone_by_class.get(cls.id, 'Asia/Tehran'))} | {escape(cls.name)}")
     else:
         lines.append("\n📝 امتحان پیش‌رویی ثبت نشده است.")
     if data["announcements"]:
@@ -119,13 +127,13 @@ async def _render_dashboard(message: Message, session: AsyncSession, user) -> No
 async def dashboard(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     await _render_dashboard(message, session, user)
 
 
 @router.callback_query(F.data == "p1:dashboard")
 async def dashboard_callback(callback: CallbackQuery, session: AsyncSession) -> None:
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     await delete_panel(callback.message)
     await _render_dashboard(callback.message, session, user)
     await callback.answer("داشبورد به‌روزرسانی شد.")
@@ -133,7 +141,7 @@ async def dashboard_callback(callback: CallbackQuery, session: AsyncSession) -> 
 
 @router.callback_query(F.data == "p1:calendar")
 async def calendar_entry(callback: CallbackQuery, session: AsyncSession) -> None:
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = await classes_for_user(session, user)
     await delete_panel(callback.message)
     if not classes:
@@ -163,7 +171,7 @@ async def dashboard_join(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "p1:preferences")
 async def preferences_entry(callback: CallbackQuery, session: AsyncSession) -> None:
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = await classes_for_user(session, user)
     await delete_panel(callback.message)
     if not classes:
@@ -184,17 +192,25 @@ async def preferences_entry(callback: CallbackQuery, session: AsyncSession) -> N
 
 
 async def _render_calendar(message: Message, session: AsyncSession, class_id: int, class_name: str) -> None:
-    timetable, exams, homeworks = await calendar_rows(session, class_id, date.today())
+    context = await get_class_with_school(session, class_id)
+    if context is None:
+        await message.answer("کلاس موردنظر پیدا نشد.")
+        return
+    timezone_name = context[2].timezone
+    local_today = datetime.now(ZoneInfo(timezone_name)).date()
+    timetable, exams, homeworks = await calendar_rows(
+        session, class_id, local_today, timezone_name=timezone_name
+    )
     lines = [f"📅 <b>تقویم آموزشی — {escape(class_name)}</b>", "", "رویدادهای هفت روز آینده:"]
     if exams:
         lines.append("\n📝 <b>امتحانات</b>")
         for exam, subject in exams:
-            lines.append(f"• {jalali_datetime(exam.scheduled_at, 'Asia/Tehran')} — {escape(subject.name)}: {escape(exam.title)}")
+            lines.append(f"• {jalali_datetime(exam.scheduled_at, timezone_name)} — {escape(subject.name)}: {escape(exam.title)}")
     if homeworks:
         lines.append("\n📚 <b>موعد تکالیف</b>")
         for hw, subject in homeworks:
             lines.append(f"• {jalali_date(hw.due_on)} — {escape(subject.name)}: {escape(hw.title)}")
-    today_weekday = persian_weekday(date.today())
+    today_weekday = persian_weekday(local_today)
     todays = [(entry, subject) for entry, subject in timetable if entry.weekday == today_weekday]
     if todays:
         lines.append("\n🏫 <b>کلاس‌های امروز</b>")
@@ -218,7 +234,7 @@ async def search_entry(message: Message, state: FSMContext) -> None:
 async def search_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = await classes_for_user(session, user)
     rows = await search_records(session, [row[0] for row in classes], message.text)
     await state.clear()
@@ -243,7 +259,7 @@ async def search_submit(message: Message, state: FSMContext, session: AsyncSessi
 async def notification_settings(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = await classes_for_user(session, user)
     if not classes:
         await message.answer("برای تنظیم اعلان‌ها ابتدا عضو یک کلاس شوید.")
@@ -275,13 +291,17 @@ async def _render_preferences(message: Message, session: AsyncSession, user, cla
 @router.callback_query(F.data.startswith("p1:toggle:"))
 async def toggle_preference(callback: CallbackQuery, session: AsyncSession) -> None:
     _, _, kind, class_id_s = callback.data.split(":")
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     class_id = int(class_id_s)
+    if not await user_can_access_class(session, user, class_id):
+        await callback.answer("دسترسی شما به این کلاس فعال نیست.", show_alert=True)
+        return
     pref = await get_preferences(session, user.id, class_id)
     if kind == "hw":
         pref.homework_enabled = not pref.homework_enabled
     else:
         pref.exams_enabled = not pref.exams_enabled
+    await session.commit()
     await callback.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"📚 تکالیف: {'فعال' if pref.homework_enabled else 'خاموش'}", callback_data=f"p1:toggle:hw:{class_id}")],
         [InlineKeyboardButton(text=f"📝 امتحانات: {'فعال' if pref.exams_enabled else 'خاموش'}", callback_data=f"p1:toggle:exam:{class_id}")],
@@ -294,7 +314,7 @@ async def toggle_preference(callback: CallbackQuery, session: AsyncSession) -> N
 async def announcements(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = await classes_for_user(session, user)
     rows = await list_announcements(session, [row[0] for row in classes])
     manager = False
@@ -316,7 +336,7 @@ async def announcements(message: Message, session: AsyncSession) -> None:
 async def content_management(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = [row for row in await classes_for_user(session, user) if await is_class_manager(session, user, row[0])]
     if not classes:
         await message.answer("شما مدیر هیچ کلاسی نیستید.")
@@ -329,6 +349,10 @@ async def content_management(message: Message, session: AsyncSession) -> None:
 
 
 async def _render_content(message: Message, session: AsyncSession, class_id: int) -> None:
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
+    if not await is_class_manager(session, user, class_id):
+        await message.answer("فقط مدیر کلاس می‌تواند محتوای آموزشی را مدیریت کند.")
+        return
     rows = []
     for kind, model in (("homework", Homework), ("exam", Exam), ("report", DailyReport)):
         records = (await session.execute(
@@ -356,8 +380,10 @@ async def _render_content(message: Message, session: AsyncSession, class_id: int
 @router.callback_query(F.data.startswith("p1:archive:"))
 async def archive_callback(callback: CallbackQuery, session: AsyncSession) -> None:
     _, _, kind, record_id = callback.data.split(":")
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     ok, text = await archive_record(session, kind, int(record_id), user)
+    if ok:
+        await session.commit()
     await callback.answer(text, show_alert=not ok)
     if ok:
         await callback.message.edit_text("✅ مورد انتخاب‌شده آرشیو شد. برای مشاهده موارد باقی‌مانده دوباره پنل مدیریت محتوا را باز کنید.")
@@ -366,7 +392,7 @@ async def archive_callback(callback: CallbackQuery, session: AsyncSession) -> No
 @router.callback_query(F.data.startswith("p1:edit:"))
 async def edit_callback(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     _, _, kind, record_id = callback.data.split(":")
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     model = {"homework": Homework, "exam": Exam, "report": DailyReport}[kind]
     record = await session.get(model, int(record_id))
     if record is None or not await is_class_manager(session, user, record.class_id):
@@ -394,8 +420,10 @@ async def edit_second(message: Message, state: FSMContext, session: AsyncSession
     if message.text == "❌ انصراف":
         return
     data = await state.get_data()
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     ok, text = await update_record(session, data["edit_kind"], data["edit_id"], data["first"], message.text, user)
+    if ok:
+        await session.commit()
     await state.clear()
     await message.answer(("✅ " if ok else "⚠️ ") + text, reply_markup=await menu_for(session, user))
 
@@ -409,7 +437,7 @@ async def announcements_callback(callback: CallbackQuery, session: AsyncSession)
 
 @router.callback_query(F.data == "p1:new_announcement")
 async def new_announcement(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = [row for row in await classes_for_user(session, user) if await is_class_manager(session, user, row[0])]
     if not classes:
         await callback.answer("دسترسی ایجاد اطلاعیه ندارید.", show_alert=True)
@@ -442,7 +470,7 @@ async def announcement_title(message: Message, state: FSMContext) -> None:
 async def announcement_body(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         return
-    user = await get_user(session, message.from_user)
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
     data = await state.get_data()
     try:
         item = await create_announcement(session, data["class_id"], data["title"], message.text, user)

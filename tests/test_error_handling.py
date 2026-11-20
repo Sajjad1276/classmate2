@@ -38,7 +38,7 @@ async def test_update_error_uses_safe_actionable_message(monkeypatch, exception,
     )
 
     assert await errors.on_update_error(event, state) is True
-    assert state.cleared is True
+    assert state.cleared is not isinstance(exception, RuntimeError)
     assert expected in sent[0]
     assert "bad input" not in sent[0]
     assert "internal" not in sent[0]
@@ -58,4 +58,4 @@ async def test_update_error_survives_fsm_cleanup_failure(monkeypatch):
 
     event = SimpleNamespace(update=SimpleNamespace(), exception=RuntimeError("db"), update_id=1)
     assert await errors.on_update_error(event, BrokenState()) is True
-    assert sent == ["خطای موقت رخ داد. لطفاً چند لحظه بعد دوباره تلاش کنید."]
+    assert sent == ["خطای موقت رخ داد. اطلاعات فرم شما حفظ شده است؛ لطفاً دوباره تلاش کنید."]

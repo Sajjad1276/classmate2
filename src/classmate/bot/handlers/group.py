@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.bot.handlers.ui import delete_panel, get_user, run_view
 from classmate.bot.keyboards import group_panel
+from classmate.services.permissions import get_class_with_school, user_can_access_class
 from classmate.services.records import get_group_context
 
 router = Router(name="group")
@@ -80,8 +81,12 @@ async def cb_refresh_panel(callback: CallbackQuery, session: AsyncSession) -> No
     from classmate.services.permissions import get_class_with_school
 
     ctx = await get_class_with_school(session, class_id)
-    if ctx is None:
-        await callback.answer("کلاس موردنظر پیدا نشد", show_alert=True)
+    if (
+        ctx is None
+        or callback.message.chat.type not in {"group", "supergroup"}
+        or ctx[0].group_chat_id != callback.message.chat.id
+    ):
+        await callback.answer("این پنل متعلق به این گروه نیست یا کلاس غیرفعال شده است.", show_alert=True)
         return
     class_group = ctx[0]
     text = panel_text(class_group.name)
@@ -105,6 +110,15 @@ async def cb_group_view(callback: CallbackQuery, session: AsyncSession) -> None:
     action = parts[2]
     class_id = int(parts[3])
     user = await get_user(session, callback.from_user, private=False)
+    ctx = await get_class_with_school(session, class_id)
+    if (
+        ctx is None
+        or callback.message.chat.type not in {"group", "supergroup"}
+        or ctx[0].group_chat_id != callback.message.chat.id
+        or not await user_can_access_class(session, user, class_id)
+    ):
+        await callback.answer("این کلاس برای شما یا این گروه در دسترس نیست.", show_alert=True)
+        return
     await delete_panel(callback.message)
     await run_view(callback.message, session, action, class_id, user, close_reply_keyboard=False)
     await callback.answer()
@@ -121,6 +135,17 @@ async def cb_group_new(callback: CallbackQuery, state: FSMContext, session: Asyn
         start_homework_after_class,
         start_report_after_class,
     )
+
+    user = await get_user(session, callback.from_user, private=False)
+    ctx = await get_class_with_school(session, class_id)
+    if (
+        ctx is None
+        or callback.message.chat.type not in {"group", "supergroup"}
+        or ctx[0].group_chat_id != callback.message.chat.id
+        or not await user_can_access_class(session, user, class_id)
+    ):
+        await callback.answer("فقط عضو فعال این کلاس می‌تواند درخواست ثبت کند.", show_alert=True)
+        return
 
     await state.clear()
     await delete_panel(callback.message)

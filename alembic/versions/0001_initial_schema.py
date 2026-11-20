@@ -17,18 +17,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Bootstrap via metadata create for MVP speed.
-    # Future changes must be explicit Alembic operations.
-    from classmate.db.base import Base
-    from classmate.db import models  # noqa: F401
+    # This metadata is a frozen copy from the original schema. Do not import
+    # the live ORM metadata here: future model changes require new revisions.
+    from classmate.db.schema_v0001 import SnapshotBase
 
-    bind = op.get_bind()
-    Base.metadata.create_all(bind=bind)
+    SnapshotBase.metadata.create_all(bind=op.get_bind())
 
 
 def downgrade() -> None:
-    from classmate.db.base import Base
-    from classmate.db import models  # noqa: F401
-
-    bind = op.get_bind()
-    Base.metadata.drop_all(bind=bind)
+    # The initial revision is an irreversible schema baseline. Dropping all
+    # metadata here could destroy tables/data created after 0001. Restore a
+    # backup for rollback; this revision intentionally never drops objects.
+    pass

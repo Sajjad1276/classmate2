@@ -29,10 +29,7 @@ async def schedule_approved_record_reminders(
         jobs.append((t - timedelta(hours=1), f"یادآوری امتحان (۱ ساعت مانده): {record.title}"))
     elif entity_type == EntityType.HOMEWORK.value and isinstance(record, Homework):
         if record.due_on:
-            due_evening = datetime.combine(record.due_on, datetime.min.time(), tzinfo=zone) - timedelta(
-                hours=6
-            )  # ~18:00 previous day-ish; simplified
-            # Prefer day-before 18:00
+            # Schedule the reminder for 18:00 on the day before the deadline.
             day_before = record.due_on - timedelta(days=1)
             remind_at = datetime(day_before.year, day_before.month, day_before.day, 18, 0, tzinfo=zone)
             if remind_at > now:

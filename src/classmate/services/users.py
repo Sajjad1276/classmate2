@@ -26,6 +26,9 @@ async def ensure_user(
         await session.flush()
         return user
 
+    if not user.is_active:
+        raise PermissionError("حساب کاربری شما غیرفعال شده است.")
+
     # Keep profile fresh
     if username and user.username != username:
         user.username = username

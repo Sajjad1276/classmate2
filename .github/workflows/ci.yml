@@ -4,10 +4,29 @@ on:
   push:
     branches: [main, "feat/**"]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: '1'
+      PYTHONPATH: src
+      POSTGRES_TEST_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/classmate_test
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: classmate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d classmate_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -19,8 +38,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      - name: Ruff
+      - name: Ruff (syntax and name-resolution checks)
         run: ruff check src tests
+
+      - name: Strict type-check transactional outbox
+        run: mypy --strict src/classmate/services/outbox.py
+
+      - name: PostgreSQL migration from an empty database
+        env:
+          DATABASE_URL: ${{ env.POSTGRES_TEST_URL }}
+        run: alembic upgrade head
 
       - name: Tests
         run: pytest -q
