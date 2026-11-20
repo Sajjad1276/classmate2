@@ -21,8 +21,8 @@ from classmate.services.records import (
     list_homework,
     list_pending_records,
     reject_record,
-    update_record,
 )
+from classmate.services.phase1 import update_record
 from classmate.services.users import ensure_user
 
 
