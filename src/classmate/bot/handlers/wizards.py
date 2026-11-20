@@ -2,6 +2,7 @@
 
 import logging
 from datetime import date, datetime, time as dtime, timezone
+from zoneinfo import ZoneInfo
 from html import escape
 
 from aiogram import F, Router
@@ -47,6 +48,7 @@ from classmate.db.models import (
 from classmate.domain.dates import parse_school_date, parse_school_datetime
 from classmate.services.permissions import (
     activate_student_membership,
+    user_can_access_class,
     code_expiry,
     get_class_with_school,
     hash_code,
@@ -387,6 +389,10 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
             return
 
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
+    if not data.get("class_id") or not await user_can_access_class(session, user, data["class_id"]):
+        await state.clear()
+        await message.answer("دسترسی شما به این کلاس فعال نیست.", reply_markup=await menu_for(session, user))
+        return
     subject = await session.get(Subject, data["subject_id"])
     if subject is None:
         await message.answer("درس انتخاب‌شده معتبر نیست.")
@@ -404,6 +410,7 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
     )
     ctx = await get_class_with_school(session, data["class_id"])
     class_group = ctx[0] if ctx else None
+    await session.commit()
     body = (
         f"🕓 <b>تکلیف جدید برای بررسی</b>\n"
         f"درس: {escape(subject.name)}\n"
@@ -478,6 +485,10 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
         return
 
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
+    if not data.get("class_id") or not await user_can_access_class(session, user, data["class_id"]):
+        await state.clear()
+        await message.answer("دسترسی شما به این کلاس فعال نیست.", reply_markup=await menu_for(session, user))
+        return
     subject = await session.get(Subject, data["subject_id"])
     record = await create_exam(
         session,
@@ -489,6 +500,7 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
         scheduled,
         user.id,
     )
+    await session.commit()
     body = (
         f"🕓 <b>امتحان جدید برای بررسی</b>\n"
         f"درس: {escape(subject.name)}\n"
@@ -517,11 +529,21 @@ async def report_body(message: Message, state: FSMContext, session: AsyncSession
         return
     data = await state.get_data()
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
-    record = await create_daily_report(
-        session, data["class_id"], date.today(), message.text.strip(), user.id
-    )
+    if not data.get("class_id") or not await user_can_access_class(session, user, data["class_id"]):
+        await state.clear()
+        await message.answer("دسترسی شما به این کلاس فعال نیست.", reply_markup=await menu_for(session, user))
+        return
     ctx = await get_class_with_school(session, data["class_id"])
-    class_group = ctx[0] if ctx else None
+    if ctx is None:
+        await state.clear()
+        await message.answer("کلاس انتخاب‌شده معتبر نیست.", reply_markup=await menu_for(session, user))
+        return
+    class_group, _, school = ctx
+    local_today = datetime.now(ZoneInfo(school.timezone)).date()
+    record = await create_daily_report(
+        session, data["class_id"], local_today, message.text.strip(), user.id
+    )
+    await session.commit()
     body = (
         f"🕓 <b>گزارش روزانه برای بررسی</b>\n"
         f"ثبت‌کننده: {escape(user.full_name)}"
@@ -621,6 +643,10 @@ async def group_shared(message: Message, state: FSMContext, session: AsyncSessio
     if class_group is None or not class_group.is_active:
         await state.clear()
         await message.answer("کلاس موردنظر پیدا نشد.", reply_markup=ReplyKeyboardRemove())
+        return
+    if class_group.group_chat_id is not None and class_group.group_chat_id != shared.chat_id:
+        await state.clear()
+        await message.answer("این کلاس از قبل به گروه دیگری متصل است. ابتدا اتصال قبلی را لغو کنید.", reply_markup=ReplyKeyboardRemove())
         return
     class_group.group_chat_id = shared.chat_id
     class_group.group_chat_title = shared.title or chat.title or shared.username or "گروه کلاس"
@@ -834,6 +860,7 @@ async def subject_name(message: Message, state: FSMContext, session: AsyncSessio
         return
     _, _, school = ctx
     subj = await add_subject(session, class_id, school.id, message.text.strip())
+    await session.commit()
     await state.clear()
     await message.answer(
         f"✅ درس <b>{escape(subj.name)}</b> اضافه شد.",
