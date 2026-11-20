@@ -307,7 +307,10 @@ async def submissions_panel(message: Message, session: AsyncSession, class_id: i
         .join(Homework, HomeworkSubmission.homework_id == Homework.id)
         .join(Subject, Homework.subject_id == Subject.id)
         .join(User, HomeworkSubmission.student_id == User.id)
-        .where(Homework.class_id == class_id)
+        .where(
+            Homework.class_id == class_id,
+            Homework.status == RecordStatus.APPROVED,
+        )
         .order_by(HomeworkSubmission.created_at.desc()).limit(30)
     )).all())
     if not rows:
