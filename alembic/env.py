@@ -1,12 +1,13 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
+from dotenv import load_dotenv
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from classmate.core.config import get_settings
 from classmate.db.base import Base
 from classmate.db import models  # noqa: F401
 
@@ -15,8 +16,16 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
-settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+load_dotenv()
+database_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+if not database_url or database_url.startswith("driver://"):
+    raise RuntimeError("DATABASE_URM must be configured before running Alembic migrations.")
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+elif database_url.startswith("postgresql://"):
+    database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+# ConfigParser treats percent signs as interpolation markers.
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:

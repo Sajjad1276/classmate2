@@ -16,9 +16,9 @@ Students and staff use reply keyboards and inline panels. No slash-command memor
 
 ```bash
 cp .env.example .env
-# BOT_TOKEN + BOOTSTRAP_ADMIN_IDS
+# Set BOT_TOKEN, BOOTSTRAP_ADMIN_IDS and a strong POSTGRES_PASSWORD in .env.
 docker compose up --build
-alembic upgrade head
+# The one-shot migrate service runs alembic upgrade head before bot/worker start.
 ```
 
 ## Main flows (all via buttons)
@@ -66,5 +66,7 @@ alembic upgrade head
 - Reminder recipient preferences are loaded with one indexed outer join instead of one query per member.
 - Inline navigation edits existing panels where possible, and keyboard removal is silent so the chat stays compact.
 - For production, run behind a process supervisor and prefer Telegram webhook mode when a stable HTTPS endpoint is available; polling remains the safe local-development default.
+- PostgreSQL is bound to localhost for local administration only; Redis is internal to the Compose network. Do not publish either service publicly. Use a long, URL-safe `POSTGRES_PASSWORD` and a secret manager for production.
+- Compose runs a one-shot migration service and blocks bot/worker startup until `alembic upgrade head` succeeds. Alembic requires `DATABASE_URL`, but does not require `BOT_TOKEN`.
 
 Built to stay ahead of ClassMate 1 — cleaner architecture and a real product UI.
