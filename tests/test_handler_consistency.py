@@ -12,6 +12,7 @@ from classmate.bot.handlers.wizards import start_report_after_class
 from classmate.bot.keyboards import admin_menu, group_panel, main_menu, management_menu
 from classmate.bot.handlers.phase1 import toggle_preference
 from classmate.bot.handlers.phase2 import poll_open, poll_question
+from classmate.bot.states import ReportForm
 
 
 def _telegram_user(user):
