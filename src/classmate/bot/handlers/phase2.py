@@ -16,6 +16,7 @@ from classmate.bot.keyboards import cancel_kb, class_picker, education_result_kb
 from classmate.bot.states import EvaluationForm, PollCreateForm, ReviewSubmissionForm, SubmissionForm
 from classmate.db.models import Attendance, ClassMembership, ClassSubject, Grade, Homework, HomeworkSubmission, Poll, PollOption, Subject, User
 from classmate.domain.dates import jalali_date
+from classmate.services.outbox import enqueue_telegram_message
 from classmate.services.permissions import get_class_with_school, is_class_manager, user_can_access_class
 from classmate.services.phase2 import (
     active_polls,
@@ -382,15 +383,23 @@ async def review_submit(message: Message, state: FSMContext, session: AsyncSessi
     submission.status = "reviewed"
     submission.reviewed_by = user.id
     submission.reviewed_at = datetime.now(timezone.utc)
-    await session.commit()
     student = await session.get(User, submission.student_id)
-    if student and student.private_chat_started:
-        try:
-            await message.bot.send_message(student.telegram_id, f"📝 بازخورد تکلیف «{escape(homework.title)}»:\n{escape(submission.feedback)}")
-        except Exception:
-            logger.warning("Could not send submission feedback to student", exc_info=True)
+    if student and student.is_active and student.private_chat_started:
+        await enqueue_telegram_message(
+            session,
+            target_type="private",
+            target_chat_id=student.telegram_id,
+            recipient_user_id=student.id,
+            class_id=homework.class_id,
+            text=f"📝 بازخورد تکلیف «{escape(homework.title)}»:\n{escape(submission.feedback)}",
+            idempotency_key=f"homework-feedback:{submission.id}:{submission.reviewed_at.isoformat()}",
+        )
+    await session.commit()
     await state.clear()
-    await message.answer("✅ بازخورد ثبت و برای دانش‌آموز ارسال شد.", reply_markup=await menu_for(session, user))
+    await message.answer(
+        "✅ بازخورد ثبت شد و برای ارسال به دانش‌آموز در صف قرار گرفت.",
+        reply_markup=await menu_for(session, user),
+    )
 
 
 async def evaluation_panel(message: Message, session: AsyncSession, state: FSMContext, class_id: int) -> None:
