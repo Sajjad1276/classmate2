@@ -426,6 +426,9 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
             text=body,
             action_type="homework",
             action_id=record.id,
+            entity_type="homework",
+            entity_id=record.id,
+            expected_record_status="PENDING",
             idempotency_key=f"approval:homework:{record.id}",
         )
     await session.commit()
@@ -522,6 +525,9 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
             text=body,
             action_type="exam",
             action_id=record.id,
+            entity_type="exam",
+            entity_id=record.id,
+            expected_record_status="PENDING",
             idempotency_key=f"approval:exam:{record.id}",
         )
     await session.commit()
@@ -565,6 +571,9 @@ async def report_body(message: Message, state: FSMContext, session: AsyncSession
             text=body,
             action_type="report",
             action_id=record.id,
+            entity_type="report",
+            entity_id=record.id,
+            expected_record_status="PENDING",
             idempotency_key=f"approval:report:{record.id}",
         )
     await session.commit()
