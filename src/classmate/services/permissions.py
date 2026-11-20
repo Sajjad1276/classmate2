@@ -232,7 +232,7 @@ async def connect_group_by_code(
         raise ValueError("کد اتصال فاقد تاریخ انقضا است. لطفاً کد جدید دریافت کنید.")
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if expires_at < current:
+    if expires_at <= current:
         raise ValueError("کد اتصال منقضی شده است. لطفاً کد جدید دریافت کنید.")
 
     conflict = await session.scalar(
