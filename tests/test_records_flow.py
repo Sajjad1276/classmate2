@@ -306,6 +306,24 @@ async def test_expired_join_code(world):
 @pytest.mark.asyncio
 async def test_record_services_reject_unauthorized_approver(world):
     session = world["session"]
+    unauthorized_user = User(
+        telegram_id=9002,
+        username="unauthorized",
+        full_name="دانش‌آموز دیگر",
+        private_chat_started=True,
+    )
+    session.add(unauthorized_user)
+    await session.flush()
+    session.add(
+        ClassMembership(
+            class_id=world["class"].id,
+            user_id=unauthorized_user.id,
+            role=Role.STUDENT,
+            is_active=True,
+        )
+    )
+    await session.flush()
+
     homework = await create_homework(
         session,
         world["class"].id,
@@ -313,14 +331,14 @@ async def test_record_services_reject_unauthorized_approver(world):
         "رکورد محرمانه",
         "شرح",
         None,
-        world["manager"].id,
+        world["student"].id,
     )
 
     ok, message = await approve_record(
         session,
         EntityType.HOMEWORK.value,
         homework.id,
-        world["student"].id,
+        unauthorized_user.id,
         world["school"].id,
         world["class"].id,
         "Asia/Tehran",
@@ -334,7 +352,7 @@ async def test_record_services_reject_unauthorized_approver(world):
         session,
         EntityType.HOMEWORK.value,
         homework.id,
-        world["student"].id,
+        unauthorized_user.id,
         world["school"].id,
         world["class"].id,
         note="تلاش غیرمجاز",
