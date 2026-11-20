@@ -281,6 +281,12 @@ async def process_outbox_once(bot: Bot) -> int:
                 row = await validation_session.get(TelegramOutbox, job_id)
                 if row is None or row.status != OutboxStatus.PROCESSING:
                     continue
+                # Approval-button messages from the former group-based review flow
+                # must never leak into class groups after the private review panel ships.
+                if row.action_type is not None:
+                    row.status = OutboxStatus.CANCELLED
+                    row.locked_at = None
+                    continue
                 if not await _outbox_is_deliverable(validation_session, row):
                     row.status = OutboxStatus.CANCELLED
                     row.locked_at = None
