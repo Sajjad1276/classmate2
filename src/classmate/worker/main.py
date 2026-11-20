@@ -5,13 +5,13 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNotFound
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNotFound, TelegramRetryAfter
 from sqlalchemy import select, update
 
 from classmate.core.config import get_settings
-from classmate.core.enums import EntityType, RecordStatus, ReminderStatus
+from classmate.core.enums import EntityType, OutboxStatus, RecordStatus, ReminderStatus
 from classmate.core.logging import configure_logging
-from classmate.db.models import ClassGroup, ClassMembership, Exam, Homework, ReminderJob, User
+from classmate.db.models import AcademicYear, ClassGroup, ClassMembership, Exam, Homework, ReminderJob, School, TelegramOutbox, User
 from classmate.db.session import SessionFactory
 
 logger = logging.getLogger(__name__)
@@ -153,6 +153,185 @@ async def process_once(bot: Bot) -> int:
     return sent
 
 
+async def _outbox_is_deliverable(session, row: TelegramOutbox) -> bool:
+    """Revalidate a queued recipient and class immediately before Telegram I/O."""
+    if row.target_type == "group":
+        result = await session.execute(
+            select(ClassGroup.id)
+            .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+            .join(School, AcademicYear.school_id == School.id)
+            .where(
+                ClassGroup.id == row.class_id,
+                ClassGroup.group_chat_id == row.target_chat_id,
+                ClassGroup.is_active.is_(True),
+                School.is_active.is_(True),
+            )
+        )
+        return result.scalar_one_or_none() is not None
+
+    if row.target_type != "private" or row.recipient_user_id is None:
+        return False
+
+    user = await session.scalar(
+        select(User).where(
+            User.id == row.recipient_user_id,
+            User.telegram_id == row.target_chat_id,
+            User.is_active.is_(True),
+            User.private_chat_started.is_(True),
+        )
+    )
+    if user is None:
+        return False
+    if row.class_id is None:
+        return True
+
+    membership_id = await session.scalar(
+        select(ClassMembership.id)
+        .join(ClassGroup, ClassMembership.class_id == ClassGroup.id)
+        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
+        .where(
+            ClassMembership.class_id == row.class_id,
+            ClassMembership.user_id == user.id,
+            ClassMembership.is_active.is_(True),
+            ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
+        )
+    )
+    return membership_id is not None
+
+
+async def _claim_outbox_ids(session) -> list[int]:
+    now = datetime.now(timezone.utc)
+    lease_expired = now - timedelta(seconds=LEASE_SECONDS)
+    await session.execute(
+        update(TelegramOutbox)
+        .where(
+            TelegramOutbox.status == OutboxStatus.PROCESSING,
+            TelegramOutbox.locked_at < lease_expired,
+        )
+        .values(status=OutboxStatus.PENDING, locked_at=None)
+    )
+    ids = list(
+        (
+            await session.scalars(
+                select(TelegramOutbox.id)
+                .where(
+                    TelegramOutbox.status.in_(
+                        [OutboxStatus.PENDING, OutboxStatus.RETRY]
+                    ),
+                    TelegramOutbox.scheduled_at <= now,
+                )
+                .order_by(TelegramOutbox.scheduled_at, TelegramOutbox.id)
+                .limit(BATCH)
+                .with_for_update(skip_locked=True)
+            )
+        ).all()
+    )
+    if ids:
+        await session.execute(
+            update(TelegramOutbox)
+            .where(TelegramOutbox.id.in_(ids))
+            .values(status=OutboxStatus.PROCESSING, locked_at=now)
+        )
+    return ids
+
+
+async def process_outbox_once(bot: Bot) -> int:
+    """Deliver committed outbox messages (at-least-once, never fire-and-forget)."""
+    async with SessionFactory() as claim_session:
+        async with claim_session.begin():
+            job_ids = await _claim_outbox_ids(claim_session)
+
+    delivered = 0
+    for job_id in job_ids:
+        payload = None
+        async with SessionFactory() as validation_session:
+            async with validation_session.begin():
+                row = await validation_session.get(TelegramOutbox, job_id)
+                if row is None or row.status != OutboxStatus.PROCESSING:
+                    continue
+                if not await _outbox_is_deliverable(validation_session, row):
+                    row.status = OutboxStatus.CANCELLED
+                    row.locked_at = None
+                    continue
+                payload = {
+                    "target_chat_id": row.target_chat_id,
+                    "text": row.text,
+                    "parse_mode": row.parse_mode,
+                    "disable_notification": row.disable_notification,
+                    "action_type": row.action_type,
+                    "action_id": row.action_id,
+                }
+
+        if payload is None:
+            continue
+
+        try:
+            reply_markup = None
+            if payload["action_type"] and payload["action_id"] is not None:
+                from classmate.bot.keyboards import approval_keyboard
+
+                reply_markup = approval_keyboard(
+                    payload["action_type"], payload["action_id"]
+                )
+            await bot.send_message(
+                chat_id=payload["target_chat_id"],
+                text=payload["text"],
+                parse_mode=payload["parse_mode"],
+                disable_notification=payload["disable_notification"],
+                reply_markup=reply_markup,
+            )
+        except Exception as exc:
+            logger.exception("Failed to deliver Telegram outbox message %s", job_id)
+            async with SessionFactory() as retry_session:
+                async with retry_session.begin():
+                    row = await retry_session.get(TelegramOutbox, job_id)
+                    if row is None or row.status != OutboxStatus.PROCESSING:
+                        continue
+                    row.attempts += 1
+                    row.last_error = str(exc)[:500]
+                    row.locked_at = None
+                    permanent = isinstance(
+                        exc,
+                        (TelegramBadRequest, TelegramForbiddenError, TelegramNotFound),
+                    )
+                    if permanent or row.attempts >= 7:
+                        row.status = OutboxStatus.FAILED
+                        if (
+                            isinstance(exc, TelegramForbiddenError)
+                            and row.target_type == "private"
+                            and row.recipient_user_id is not None
+                        ):
+                            recipient = await retry_session.get(
+                                User, row.recipient_user_id
+                            )
+                            if recipient is not None:
+                                recipient.private_chat_started = False
+                    else:
+                        row.status = OutboxStatus.RETRY
+                        delay_seconds = (
+                            exc.retry_after
+                            if isinstance(exc, TelegramRetryAfter)
+                            else min(3600, 2 ** row.attempts)
+                        )
+                        row.scheduled_at = datetime.now(timezone.utc) + timedelta(
+                            seconds=delay_seconds
+                        )
+            continue
+
+        async with SessionFactory() as done_session:
+            async with done_session.begin():
+                row = await done_session.get(TelegramOutbox, job_id)
+                if row is not None and row.status == OutboxStatus.PROCESSING:
+                    row.status = OutboxStatus.SENT
+                    row.sent_at = datetime.now(timezone.utc)
+                    row.locked_at = None
+                    row.last_error = None
+                    delivered += 1
+    return delivered
+
+
 async def main() -> None:
     configure_logging()
     settings = get_settings()
@@ -165,9 +344,14 @@ async def main() -> None:
     try:
         while True:
             try:
-                n = await process_once(bot)
-                if n:
-                    logger.info("Delivered %s reminders", n)
+                reminders_sent = await process_once(bot)
+                outbox_sent = await process_outbox_once(bot)
+                if reminders_sent or outbox_sent:
+                    logger.info(
+                        "Delivered %s reminders and %s outbox messages",
+                        reminders_sent,
+                        outbox_sent,
+                    )
             except Exception:
                 logger.exception("Worker loop error")
             await asyncio.sleep(15)
