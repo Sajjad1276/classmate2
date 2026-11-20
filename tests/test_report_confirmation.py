@@ -196,3 +196,53 @@ async def test_approving_student_report_publishes_to_group_without_inline_review
     assert outbox.expected_record_status == RecordStatus.APPROVED.value
     assert outbox.action_type is None
     assert "متن گزارش برای بررسی" in outbox.text
+
+
+@pytest.mark.asyncio
+async def test_student_homework_stays_private_until_operator_approves(world):
+    from datetime import timedelta
+
+    from classmate.services.records import create_homework
+
+    world["class"].group_chat_id = -100555004
+    await world["session"].flush()
+    homework = await create_homework(
+        world["session"],
+        world["class"].id,
+        world["subject"],
+        "تکلیف دانش‌آموز",
+        "شرح تکلیف",
+        date.today() + timedelta(days=2),
+        world["student"].id,
+    )
+    assert homework.status == RecordStatus.PENDING
+    assert await world["session"].scalar(
+        select(TelegramOutbox.id).where(
+            TelegramOutbox.entity_type == EntityType.HOMEWORK.value,
+            TelegramOutbox.entity_id == homework.id,
+        )
+    ) is None
+
+    ok, _ = await approve_record(
+        world["session"],
+        EntityType.HOMEWORK.value,
+        homework.id,
+        world["approver"].id,
+        world["school"].id,
+        world["class"].id,
+        "Asia/Tehran",
+    )
+    assert ok is True
+    await world["session"].commit()
+
+    published = await world["session"].scalar(
+        select(TelegramOutbox).where(
+            TelegramOutbox.entity_type == EntityType.HOMEWORK.value,
+            TelegramOutbox.entity_id == homework.id,
+        )
+    )
+    assert published is not None
+    assert published.expected_record_status == RecordStatus.APPROVED.value
+    assert published.action_type is None
+    assert "برای بررسی" not in published.text
+    assert "تکلیف جدید منتشر شد" in published.text
