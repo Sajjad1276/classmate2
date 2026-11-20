@@ -9,6 +9,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.bot.keyboards import (
@@ -70,6 +71,19 @@ router = Router(name="wizards")
 logger = logging.getLogger(__name__)
 
 WEEK_NAMES = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
+
+
+def _safe_html_preview(value: str, limit: int = 3000) -> str:
+    """Escape text without cutting an HTML entity at Telegram's message limit."""
+    parts: list[str] = []
+    used = 0
+    for character in value:
+        escaped = escape(character)
+        if used + len(escaped) > limit:
+            return "".join(parts) + "…"
+        parts.append(escaped)
+        used += len(escaped)
+    return "".join(parts)
 
 
 async def _subjects(session: AsyncSession, class_id: int) -> list[tuple[int, str]]:
@@ -552,8 +566,8 @@ async def report_body(message: Message, state: FSMContext, session: AsyncSession
     )
     await state.set_state(ReportForm.confirm)
     is_operator = await can_approve(session, user, class_id)
-    preview = escape(report_text[:2400])
-    if len(report_text) > 2400:
+    preview = _safe_html_preview(report_text)
+    if len(escape(report_text)) > len(preview):
         preview += "\n… <i>ادامه متن در نسخه نهایی نگهداری می‌شود.</i>"
     action_text = (
         "✅ تأیید و انتشار گزارش"
@@ -639,7 +653,7 @@ async def report_confirm(callback: CallbackQuery, state: FSMContext, session: As
             await callback.message.edit_text("ثبت گزارش انجام نشد؛ کلاس دیگر فعال نیست.")
         return
 
-    class_group, _, school = context
+    _, _, school = context
     local_today = datetime.now(ZoneInfo(school.timezone)).date()
     existing_id = await session.scalar(
         select(DailyReport.id).where(
@@ -661,6 +675,15 @@ async def report_confirm(callback: CallbackQuery, state: FSMContext, session: As
             session, int(class_id), local_today, report_text.strip(), user.id
         )
         await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        await state.clear()
+        await callback.answer("برای امروز گزارشی در این کلاس ثبت شده است.", show_alert=True)
+        if callback.message:
+            await callback.message.edit_text(
+                "⚠️ هم‌زمان گزارش دیگری برای امروز ثبت شد؛ گزارش تکراری ذخیره نشد."
+            )
+        return
     except (ValueError, PermissionError) as exc:
         await state.clear()
         await callback.answer(str(exc), show_alert=True)
