@@ -1,3 +1,8 @@
+import os
+
+os.environ.setdefault("BOT_TOKEN", "0000000000:TEST_TOKEN_FOR_TESTS_ONLY")
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
