@@ -1,4 +1,6 @@
+from datetime import datetime, timezone
 from html import escape
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -49,7 +51,7 @@ async def school_new(message: Message, session: AsyncSession) -> None:
         if len(parts) not in {2, 3} or not parts[0] or not parts[1]:
             raise ValueError
         name, year_name = parts[0], parts[1]
-        tz = parts[2] if len(parts) == 3 else "Asia/Tehran"
+        tz = (parts[2] if len(parts) == 3 else "Asia/Tehran") or "Asia/Tehran"
     except (IndexError, ValueError):
         await message.answer("قالب: /school_new نام مدرسه | ۱۴۰۵-۱۴۰۶ [| Asia/Tehran]")
         return
@@ -57,6 +59,12 @@ async def school_new(message: Message, session: AsyncSession) -> None:
     user = await _user(session, message.from_user, private=True)
     if not user.is_platform_admin:
         await message.answer("فقط مدیر کل سامانه می‌تواند مدرسه بسازد.")
+        return
+
+    try:
+        ZoneInfo(tz)
+    except ZoneInfoNotFoundError:
+        await message.answer("منطقه زمانی نامعتبر است. نمونه معتبر: Asia/Tehran")
         return
 
     school = School(name=name[:180], timezone=tz)
@@ -212,16 +220,22 @@ async def join_class(message: Message, session: AsyncSession) -> None:
     user = await _user(session, message.from_user, private=True)
     code_h = hash_code(code)
     cls = await session.scalar(
-        select(ClassGroup).where(
+        select(ClassGroup)
+        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
+        .where(
             ClassGroup.member_join_code_hash == code_h,
             ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
         )
     )
     if cls is None:
         await message.answer("کد عضویت واردشده معتبر نیست.")
         return
-    if cls.member_join_code_expires_at and cls.member_join_code_expires_at < __import__("datetime").datetime.now(
-        __import__("datetime").timezone.utc
+    if (
+        cls.member_join_code_expires_at is None
+        or cls.member_join_code_expires_at.replace(tzinfo=cls.member_join_code_expires_at.tzinfo or timezone.utc)
+        < datetime.now(timezone.utc)
     ):
         await message.answer("این کد منقضی شده است.")
         return
@@ -242,6 +256,7 @@ async def list_classes(message: Message, session: AsyncSession) -> None:
     query = (
         select(ClassGroup)
         .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
         .outerjoin(
             ClassMembership,
             (ClassMembership.class_id == ClassGroup.id)
@@ -257,6 +272,7 @@ async def list_classes(message: Message, session: AsyncSession) -> None:
         )
         .where(
             ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
             or_(
                 ClassMembership.id.is_not(None),
                 SchoolMembership.id.is_not(None),
