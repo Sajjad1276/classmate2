@@ -40,17 +40,19 @@ async def on_update_error(event: ErrorEvent, state: FSMContext | None = None) ->
         exc_info=exception,
     )
 
-    if state is not None:
+    # Preserve multi-step form data for transient infrastructure failures.
+    terminal_error = isinstance(exception, (ValueError, TypeError, IndexError, PermissionError))
+    if terminal_error and state is not None:
         try:
             await state.clear()
         except Exception:
-            logger.warning("Could not clear FSM state after error", exc_info=True)
+            logger.warning("Could not clear FSM state after terminal error", exc_info=True)
 
     if isinstance(exception, (ValueError, TypeError, IndexError)):
         text = "ورودی قابل پردازش نیست. لطفاً دوباره از منوی ربات شروع کنید."
     elif isinstance(exception, PermissionError):
         text = "شما به این بخش دسترسی ندارید."
     else:
-        text = "خطای موقت رخ داد. لطفاً چند لحظه بعد دوباره تلاش کنید."
+        text = "خطای موقت رخ داد. اطلاعات فرم شما حفظ شده است؛ لطفاً دوباره تلاش کنید."
     await _notify_user(update, text)
     return True
