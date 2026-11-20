@@ -11,7 +11,7 @@ from classmate.bot.handlers.wizards import report_body, report_confirm
 from classmate.bot.states import ReportForm
 from classmate.core.enums import EntityType, RecordStatus
 from classmate.db.models import DailyReport, TelegramOutbox
-from classmate.services.records import approve_record
+from classmate.services.records import approve_record, list_reports
 
 
 def _telegram_user(user):
@@ -106,6 +106,58 @@ async def test_student_confirmation_creates_pending_record_but_does_not_publish(
     ).all()
     assert outbox == []
     assert "درخواست در پنل" in callback.message.edit_text.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_student_can_submit_multiple_reports_for_the_same_class_and_day(world):
+    world["class"].group_chat_id = -100555010
+    await world["session"].flush()
+
+    for body in ("گزارش اول امروز", "گزارش دوم امروز"):
+        state = AsyncMock()
+        state.get_data.return_value = {
+            "class_id": world["class"].id,
+            "report_body": body,
+            "report_owner_telegram_id": world["student"].telegram_id,
+        }
+        callback = _callback(world["student"])
+
+        await report_confirm(callback, state, world["session"])
+
+        assert "درخواست در پنل" in callback.message.edit_text.call_args.args[0]
+
+    reports = (
+        await world["session"].scalars(
+            select(DailyReport)
+            .where(DailyReport.class_id == world["class"].id)
+            .order_by(DailyReport.id.asc())
+        )
+    ).all()
+    assert len(reports) == 2
+    assert [report.body for report in reports] == [
+        "گزارش اول امروز",
+        "گزارش دوم امروز",
+    ]
+    assert reports[0].report_date == reports[1].report_date
+    assert all(report.status == RecordStatus.PENDING for report in reports)
+
+    for report in reports:
+        approved, _ = await approve_record(
+            world["session"],
+            EntityType.REPORT.value,
+            report.id,
+            world["approver"].id,
+            world["school"].id,
+            world["class"].id,
+            "Asia/Tehran",
+        )
+        assert approved is True
+
+    await world["session"].commit()
+    published_reports = await list_reports(
+        world["session"], world["class"].id, reports[0].report_date
+    )
+    assert len(published_reports) == 2
 
 
 @pytest.mark.asyncio
