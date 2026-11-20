@@ -1,5 +1,6 @@
 """Phase-one product features exposed through the button-first UX."""
 
+import logging
 from datetime import date
 from html import escape
 
@@ -28,6 +29,7 @@ from classmate.services.phase1 import (
 )
 
 router = Router(name="phase1")
+logger = logging.getLogger(__name__)
 WEEKDAYS = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
 
 
@@ -66,7 +68,17 @@ async def _render_dashboard(message: Message, session: AsyncSession, user) -> No
             dashboard_empty_kb(),
         )
         return
-    data = await dashboard_data(session, [row[0] for row in classes], date.today())
+    try:
+        data = await dashboard_data(session, [row[0] for row in classes], date.today())
+    except Exception:
+        logger.exception("Could not load dashboard data", extra={"user_id": user.id})
+        await render_panel(
+            message,
+            "🏠 <b>داشبورد من</b>\n\n"
+            "اطلاعات داشبورد موقتاً در دسترس نیست. لطفاً دوباره به‌روزرسانی کنید یا از بخش آموزشی ادامه دهید.",
+            dashboard_kb(),
+        )
+        return
     lines = [
         "🏠 <b>داشبورد من</b>",
         f"{jalali_date(date.today())}  ·  {len(classes)} کلاس فعال",
