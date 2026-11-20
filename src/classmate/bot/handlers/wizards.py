@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +36,7 @@ from classmate.bot.states import (
 from classmate.core.enums import RecordStatus, Role
 from classmate.db.models import (
     AcademicYear,
+    DailyReport,
     ClassGroup,
     ClassMembership,
     ClassSubject,
@@ -45,13 +46,13 @@ from classmate.db.models import (
     TimetableEntry,
 )
 from classmate.domain.dates import parse_school_date, parse_school_datetime
-from classmate.services.outbox import enqueue_telegram_message
 from classmate.services.permissions import (
     activate_student_membership,
     code_expiry,
     get_class_with_school,
     connect_group_by_code,
     hash_code,
+    can_approve,
     is_class_manager,
     is_school_admin,
     make_code,
@@ -410,8 +411,6 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
         due,
         user.id,
     )
-    ctx = await get_class_with_school(session, data["class_id"])
-    class_group = ctx[0] if ctx else None
     pending = record.status == RecordStatus.PENDING
     body = (
         f"{'🕓 <b>تکلیف جدید برای بررسی</b>' if pending else '✅ <b>تکلیف جدید ثبت و منتشر شد</b>'}\n"
@@ -419,20 +418,6 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
         f"عنوان: {escape(record.title)}\n"
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
-    if class_group and class_group.group_chat_id:
-        await enqueue_telegram_message(
-            session,
-            target_type="group",
-            target_chat_id=class_group.group_chat_id,
-            class_id=class_group.id,
-            text=body,
-            entity_type="homework",
-            entity_id=record.id,
-            expected_record_status=record.status.value,
-            action_type="homework" if pending else None,
-            action_id=record.id if pending else None,
-            idempotency_key=f"approval:homework:{record.id}",
-        )
     await session.commit()
 
     await state.clear()
@@ -485,7 +470,7 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
         await message.answer("کلاس انتخاب‌شده معتبر نیست.")
         await state.clear()
         return
-    class_group, _, school = ctx
+    _, _, school = ctx
     try:
         scheduled = parse_school_datetime(message.text, school.timezone)
     except ValueError as e:
@@ -519,20 +504,6 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
         f"عنوان: {escape(record.title)}\n"
         f"ثبت‌کننده: {escape(user.full_name)}"
     )
-    if class_group.group_chat_id:
-        await enqueue_telegram_message(
-            session,
-            target_type="group",
-            target_chat_id=class_group.group_chat_id,
-            class_id=class_group.id,
-            text=body,
-            entity_type="exam",
-            entity_id=record.id,
-            expected_record_status=record.status.value,
-            action_type="exam" if pending else None,
-            action_id=record.id if pending else None,
-            idempotency_key=f"approval:exam:{record.id}",
-        )
     await session.commit()
     await state.clear()
     await message.answer(
@@ -546,49 +517,171 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
 
 @router.message(ReportForm.body, F.text)
 async def report_body(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if message.chat.type != "private":
+        await message.answer("ثبت گزارش روزانه فقط در گفت‌وگوی خصوصی ربات انجام می‌شود.")
+        return
     if message.text == "❌ انصراف":
+        await state.clear()
+        user = await get_user(session, message.from_user, private=True)
+        await message.answer("ثبت گزارش لغو شد.", reply_markup=await menu_for(session, user))
         return
+
+    report_text = (message.text or "").strip()
+    if not report_text:
+        await message.answer("متن گزارش نمی‌تواند خالی باشد. متن را دوباره ارسال کنید.")
+        return
+
     data = await state.get_data()
-    user = await get_user(session, message.from_user, private=message.chat.type == "private")
-    if not data.get("class_id") or not await user_can_access_class(session, user, data["class_id"]):
+    user = await get_user(session, message.from_user, private=True)
+    class_id = data.get("class_id")
+    if not class_id or not await user_can_access_class(session, user, class_id):
         await state.clear()
-        await message.answer("دسترسی شما به این کلاس فعال نیست.", reply_markup=await menu_for(session, user))
-        return
-    ctx = await get_class_with_school(session, data["class_id"])
-    if ctx is None:
-        await state.clear()
-        await message.answer("کلاس انتخاب‌شده معتبر نیست.", reply_markup=await menu_for(session, user))
-        return
-    class_group, _, school = ctx
-    local_today = datetime.now(ZoneInfo(school.timezone)).date()
-    record = await create_daily_report(
-        session, data["class_id"], local_today, message.text.strip(), user.id
-    )
-    pending = record.status == RecordStatus.PENDING
-    body = (
-        f"{'🕓 <b>گزارش روزانه جدید برای بررسی</b>' if pending else '✅ <b>گزارش روزانه جدید ثبت و منتشر شد</b>'}\n"
-        f"ثبت‌کننده: {escape(user.full_name)}"
-    )
-    if class_group and class_group.group_chat_id:
-        await enqueue_telegram_message(
-            session,
-            target_type="group",
-            target_chat_id=class_group.group_chat_id,
-            class_id=class_group.id,
-            text=body,
-            entity_type="report",
-            entity_id=record.id,
-            expected_record_status=record.status.value,
-            action_type="report" if pending else None,
-            action_id=record.id if pending else None,
-            idempotency_key=f"approval:report:{record.id}",
+        await message.answer(
+            "دسترسی شما به این کلاس فعال نیست.",
+            reply_markup=await menu_for(session, user),
         )
-    await session.commit()
-    await state.clear()
-    await message.answer(
-        "✅ گزارش روزانه ثبت و منتشر شد." if not pending else "✅ گزارش روزانه ثبت شد و در انتظار بررسی و تأیید است.",
-        reply_markup=await menu_for(session, user),
+        return
+    if await get_class_with_school(session, class_id) is None:
+        await state.clear()
+        await message.answer("کلاس انتخاب‌شده دیگر فعال نیست.", reply_markup=await menu_for(session, user))
+        return
+
+    await state.update_data(
+        report_body=report_text,
+        report_owner_telegram_id=message.from_user.id,
     )
+    await state.set_state(ReportForm.confirm)
+    is_operator = await can_approve(session, user, class_id)
+    preview = escape(report_text[:2400])
+    if len(report_text) > 2400:
+        preview += "\n… <i>ادامه متن در نسخه نهایی نگهداری می‌شود.</i>"
+    action_text = (
+        "✅ تأیید و انتشار گزارش"
+        if is_operator
+        else "📨 تأیید و ارسال برای اپراتور"
+    )
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=action_text, callback_data="rpt:confirm", style="success")],
+            [
+                InlineKeyboardButton(text="✏️ ویرایش متن", callback_data="rpt:edit"),
+                InlineKeyboardButton(text="❌ لغو گزارش", callback_data="rpt:cancel", style="danger"),
+            ],
+        ]
+    )
+    await message.answer(
+        "📋 <b>پیش‌نمایش گزارش روزانه</b>\n\n"
+        f"{preview}\n\n"
+        + (
+            "پس از تأیید شما، گزارش در گروه منتشر می‌شود."
+            if is_operator
+            else "پس از تأیید شما، گزارش فقط برای بررسی اپراتور ارسال می‌شود و تا آن زمان در گروه منتشر نخواهد شد."
+        ),
+        reply_markup=keyboard,
+    )
+
+
+@router.callback_query(ReportForm.confirm, F.data == "rpt:edit")
+async def report_edit(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    if data.get("report_owner_telegram_id") != callback.from_user.id:
+        await callback.answer("این پیش‌نویس متعلق به شما نیست.", show_alert=True)
+        return
+    if callback.message:
+        await delete_panel(callback.message)
+        await callback.message.answer(
+            "✏️ متن اصلاح‌شده گزارش را ارسال کنید. پیش از انتشار دوباره پیش‌نمایش خواهید دید:",
+            reply_markup=cancel_kb(),
+        )
+    await state.set_state(ReportForm.body)
+    await callback.answer()
+
+
+@router.callback_query(ReportForm.confirm, F.data == "rpt:cancel")
+async def report_cancel(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    if data.get("report_owner_telegram_id") != callback.from_user.id:
+        await callback.answer("این پیش‌نویس متعلق به شما نیست.", show_alert=True)
+        return
+    await state.clear()
+    user = await get_user(session, callback.from_user, private=True)
+    if callback.message:
+        await delete_panel(callback.message)
+        await callback.message.answer("گزارش لغو شد و هیچ پیامی منتشر نشد.", reply_markup=await menu_for(session, user))
+    await callback.answer("گزارش لغو شد.")
+
+
+@router.callback_query(ReportForm.confirm, F.data == "rpt:confirm")
+async def report_confirm(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    if data.get("report_owner_telegram_id") != callback.from_user.id:
+        await callback.answer("این پیش‌نویس متعلق به شما نیست.", show_alert=True)
+        return
+    report_text = data.get("report_body")
+    class_id = data.get("class_id")
+    if not isinstance(report_text, str) or not report_text.strip() or not class_id:
+        await state.clear()
+        await callback.answer("پیش‌نویس معتبر نیست؛ دوباره شروع کنید.", show_alert=True)
+        return
+
+    user = await get_user(session, callback.from_user, private=True)
+    if not await user_can_access_class(session, user, int(class_id)):
+        await state.clear()
+        await callback.answer("دسترسی شما به این کلاس دیگر فعال نیست.", show_alert=True)
+        if callback.message:
+            await callback.message.edit_text("ثبت گزارش انجام نشد؛ دسترسی کلاس فعال نیست.")
+        return
+    context = await get_class_with_school(session, int(class_id))
+    if context is None:
+        await state.clear()
+        await callback.answer("کلاس انتخاب‌شده دیگر فعال نیست.", show_alert=True)
+        if callback.message:
+            await callback.message.edit_text("ثبت گزارش انجام نشد؛ کلاس دیگر فعال نیست.")
+        return
+
+    class_group, _, school = context
+    local_today = datetime.now(ZoneInfo(school.timezone)).date()
+    existing_id = await session.scalar(
+        select(DailyReport.id).where(
+            DailyReport.class_id == int(class_id),
+            DailyReport.report_date == local_today,
+        )
+    )
+    if existing_id is not None:
+        await state.clear()
+        await callback.answer("برای امروز گزارشی در این کلاس ثبت شده است.", show_alert=True)
+        if callback.message:
+            await callback.message.edit_text(
+                "⚠️ برای امروز در این کلاس گزارشی ثبت شده است. برای اصلاح آن با اپراتور کلاس هماهنگ کنید."
+            )
+        return
+
+    try:
+        record = await create_daily_report(
+            session, int(class_id), local_today, report_text.strip(), user.id
+        )
+        await session.commit()
+    except (ValueError, PermissionError) as exc:
+        await state.clear()
+        await callback.answer(str(exc), show_alert=True)
+        if callback.message:
+            await callback.message.edit_text(f"ثبت گزارش انجام نشد: {escape(str(exc))}")
+        return
+
+    pending = record.status == RecordStatus.PENDING
+    await state.clear()
+    if callback.message:
+        await callback.message.edit_text(
+            (
+                "🕓 <b>گزارش برای بررسی ثبت شد</b>\n\n"
+                "درخواست در پنل «موارد در انتظار بررسی» قرار گرفت. تا تأیید اپراتور، هیچ پیامی در گروه منتشر نمی‌شود."
+                if pending
+                else "✅ <b>گزارش تأیید و منتشر شد</b>\n\n"
+                "گزارش با تأیید شما در سامانه ثبت شد و برای گروه متصل در صف انتشار قرار گرفت."
+            )
+        )
+        await callback.message.answer("منوی اصلی:", reply_markup=await menu_for(session, user))
+    await callback.answer("گزارش ثبت شد.")
 
 
 # ── Join ────────────────────────────────────────────────────────────
