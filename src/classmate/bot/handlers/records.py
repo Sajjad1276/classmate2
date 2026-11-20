@@ -175,6 +175,7 @@ async def new_report(message: Message, session: AsyncSession) -> None:
     )
 
 
+@router.message(Command("timetable_set"))
 async def timetable_set(message: Message, session: AsyncSession) -> None:
     """/timetable_set روز | زنگ | درس | شروع-پایان"""
     from classmate.db.models import TimetableEntry
