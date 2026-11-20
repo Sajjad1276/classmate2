@@ -133,12 +133,16 @@ async def test_submission_requires_active_class_membership(world):
     session.add(homework)
     await session.flush()
 
+    outsider = User(telegram_id=2005, full_name="کاربر خارج از کلاس")
+    session.add(outsider)
+    await session.flush()
+
     with pytest.raises(PermissionError, match="عضو فعال"):
         await save_submission(
             session,
             homework.id,
-            world["approver"].id,
-            text="پاسخ کاربر تأییدکننده که عضو کلاس نیست",
+            outsider.id,
+            text="پاسخ کاربر خارج از کلاس",
         )
 
 
