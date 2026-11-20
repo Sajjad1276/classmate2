@@ -75,6 +75,32 @@ def admin_menu() -> InlineKeyboardMarkup:
     )
 
 
+def group_panel(*, class_id: int, class_name: str = "") -> InlineKeyboardMarkup:
+    """Inline control panel for a connected class group."""
+    cid = class_id
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📚 تکالیف", callback_data=f"g:view:homework:{cid}"),
+                InlineKeyboardButton(text="📝 امتحانات", callback_data=f"g:view:exams:{cid}"),
+            ],
+            [
+                InlineKeyboardButton(text="📋 امروز", callback_data=f"g:view:today:{cid}"),
+                InlineKeyboardButton(text="📅 برنامه", callback_data=f"g:view:week:{cid}"),
+            ],
+            [
+                InlineKeyboardButton(text="➕ تکلیف", callback_data=f"g:new:hw:{cid}"),
+                InlineKeyboardButton(text="➕ امتحان", callback_data=f"g:new:exam:{cid}"),
+                InlineKeyboardButton(text="➕ گزارش", callback_data=f"g:new:report:{cid}"),
+            ],
+            [
+                InlineKeyboardButton(text="🕓 در انتظار", callback_data=f"g:view:pending:{cid}"),
+                InlineKeyboardButton(text="🔄 بروزرسانی پنل", callback_data=f"g:panel:{cid}"),
+            ],
+        ]
+    )
+
+
 def class_picker(
     classes: list[tuple[int, str, str]],
     *,
@@ -114,7 +140,7 @@ def subject_picker(subjects: list[tuple[int, str]]) -> InlineKeyboardMarkup:
 
 def day_picker() -> InlineKeyboardMarkup:
     days = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
-    rows = []
+    rows: list[list[InlineKeyboardButton]] = []
     row: list[InlineKeyboardButton] = []
     for i, d in enumerate(days):
         row.append(InlineKeyboardButton(text=d, callback_data=f"day:{i}"))
