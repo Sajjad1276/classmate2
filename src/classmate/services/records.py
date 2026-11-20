@@ -65,6 +65,13 @@ async def get_subject(
 async def add_subject(
     session: AsyncSession, class_id: int, school_id: int, name: str
 ) -> Subject:
+    actual_school_id = await session.scalar(
+        select(AcademicYear.school_id)
+        .join(ClassGroup, ClassGroup.academic_year_id == AcademicYear.id)
+        .where(ClassGroup.id == class_id, ClassGroup.is_active.is_(True))
+    )
+    if actual_school_id != school_id:
+        raise ValueError("مدرسهٔ درس با مدرسهٔ کلاس مطابقت ندارد.")
     normalized = normalize_subject_name(name)
     subject = await session.scalar(
         select(Subject).where(
@@ -85,6 +92,25 @@ async def add_subject(
         session.add(ClassSubject(class_id=class_id, subject_id=subject.id))
     await session.flush()
     return subject
+
+
+async def _validate_subject_for_class(
+    session: AsyncSession, class_id: int, subject: Subject
+) -> None:
+    row = await session.execute(
+        select(ClassSubject.id, Subject.school_id, AcademicYear.school_id)
+        .join(Subject, ClassSubject.subject_id == Subject.id)
+        .join(ClassGroup, ClassSubject.class_id == ClassGroup.id)
+        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .where(
+            ClassSubject.class_id == class_id,
+            ClassSubject.subject_id == subject.id,
+            ClassGroup.is_active.is_(True),
+        )
+    )
+    linked = row.first()
+    if linked is None or linked[1] != linked[2]:
+        raise ValueError("درس انتخاب‌شده متعلق به این کلاس نیست.")
 
 
 async def get_or_create_next_lesson(
@@ -163,6 +189,7 @@ async def create_homework(
     created_by: int,
     due_session_id: int | None = None,
 ) -> Homework:
+    await _validate_subject_for_class(session, class_id, subject)
     record = Homework(
         class_id=class_id,
         subject_id=subject.id,
@@ -188,6 +215,7 @@ async def create_exam(
     scheduled_at: datetime,
     created_by: int,
 ) -> Exam:
+    await _validate_subject_for_class(session, class_id, subject)
     if scheduled_at.tzinfo is None:
         raise ValueError("Exam datetime must be timezone-aware")
     record = Exam(
