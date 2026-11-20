@@ -391,6 +391,9 @@ async def review_submit(message: Message, state: FSMContext, session: AsyncSessi
             target_chat_id=student.telegram_id,
             recipient_user_id=student.id,
             class_id=homework.class_id,
+            entity_type="homework",
+            entity_id=homework.id,
+            expected_record_status="APPROVED",
             text=f"📝 بازخورد تکلیف «{escape(homework.title)}»:\n{escape(submission.feedback)}",
             idempotency_key=f"homework-feedback:{submission.id}:{submission.reviewed_at.isoformat()}",
         )
