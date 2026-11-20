@@ -23,6 +23,7 @@ def main_menu(
     if is_manager:
         rows.append([KeyboardButton(text="⚙️ مدیریت کلاس"), KeyboardButton(text="🗂 مدیریت محتوا")])
         rows.append([KeyboardButton(text="👨‍🏫 ارزیابی کلاس")])
+        rows.append([KeyboardButton(text="📝 بررسی پاسخ‌ها")])
     if is_admin:
         rows.append([KeyboardButton(text="🏛 مدیریت سامانه")])
     rows.append([KeyboardButton(text="🆘 پشتیبانی"), KeyboardButton(text="❓ راهنمای استفاده")])

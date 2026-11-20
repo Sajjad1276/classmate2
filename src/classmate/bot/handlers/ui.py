@@ -421,6 +421,13 @@ async def cb_pick(callback: CallbackQuery, session: AsyncSession, state: FSMCont
         await callback.answer()
         return
 
+    if action == "review_submissions":
+        from classmate.bot.handlers.phase2 import submissions_panel
+
+        await submissions_panel(callback.message, session, class_id)
+        await callback.answer()
+        return
+
     # Wizard entry points — store class and hand off via state flag
     await state.update_data(class_id=class_id)
     await callback.answer()

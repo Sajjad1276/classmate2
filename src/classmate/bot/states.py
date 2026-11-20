@@ -83,3 +83,7 @@ class EvaluationForm(StatesGroup):
 class PollCreateForm(StatesGroup):
     question = State()
     options = State()
+
+
+class ReviewSubmissionForm(StatesGroup):
+    feedback = State()

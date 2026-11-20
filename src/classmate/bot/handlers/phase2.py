@@ -1,6 +1,6 @@
 """Phase-two learning workflows and support surface."""
 
-from datetime import date
+from datetime import date, datetime, timezone
 from html import escape
 
 from aiogram import F, Router
@@ -11,9 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.bot.handlers.ui import classes_for_user, get_user, menu_for
 from classmate.bot.keyboards import cancel_kb, class_picker
-from classmate.bot.states import EvaluationForm, PollCreateForm, SubmissionForm
+from classmate.bot.states import EvaluationForm, PollCreateForm, ReviewSubmissionForm, SubmissionForm
 from classmate.core.enums import Role
-from classmate.db.models import Attendance, ClassMembership, Grade, Homework, Poll, PollOption, Subject, User
+from classmate.db.models import Attendance, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, Subject, User
 from classmate.domain.dates import jalali_date
 from classmate.services.permissions import is_class_manager, user_can_access_class
 from classmate.services.phase2 import (
@@ -204,6 +204,85 @@ async def manager_evaluation(message: Message, session: AsyncSession) -> None:
         await message.answer("شما مدیر هیچ کلاسی نیستید.")
         return
     await message.answer("🏫 کلاس موردنظر برای ارزیابی را انتخاب کنید:", reply_markup=class_picker(classes, action="evaluation"))
+
+
+@router.message(F.text == "📝 بررسی پاسخ‌ها")
+async def review_entry(message: Message, session: AsyncSession) -> None:
+    user = await get_user(session, message.from_user)
+    classes = [row for row in await classes_for_user(session, user) if await is_class_manager(session, user, row[0])]
+    if not classes:
+        await message.answer("شما مدیر هیچ کلاسی نیستید.")
+        return
+    await message.answer("🏫 کلاس موردنظر را انتخاب کنید:", reply_markup=class_picker(classes, action="review_submissions"))
+
+
+async def submissions_panel(message: Message, session: AsyncSession, class_id: int) -> None:
+    rows = list((await session.execute(
+        select(HomeworkSubmission, Homework, Subject, User)
+        .join(Homework, HomeworkSubmission.homework_id == Homework.id)
+        .join(Subject, Homework.subject_id == Subject.id)
+        .join(User, HomeworkSubmission.student_id == User.id)
+        .where(Homework.class_id == class_id)
+        .order_by(HomeworkSubmission.created_at.desc()).limit(30)
+    )).all())
+    if not rows:
+        await message.answer("📤 هنوز پاسخی برای تکالیف این کلاس ارسال نشده است.")
+        return
+    buttons = []
+    for submission, homework, subject, student in rows:
+        label = f"{student.full_name[:16]} — {homework.title[:22]}"
+        buttons.append([color_button("🟡", label, f"p2:review:{submission.id}")])
+    await message.answer("📝 <b>پاسخ‌های ارسالی</b>\n\nبرای بررسی و ثبت بازخورد یک مورد را انتخاب کنید:", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+
+@router.callback_query(F.data.startswith("p2:review:"))
+async def review_open(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    submission = await session.get(HomeworkSubmission, int(callback.data.split(":")[2]))
+    user = await get_user(session, callback.from_user)
+    if submission is None:
+        await callback.answer("پاسخ موردنظر پیدا نشد.", show_alert=True)
+        return
+    homework = await session.get(Homework, submission.homework_id)
+    if homework is None or not await is_class_manager(session, user, homework.class_id):
+        await callback.answer("دسترسی بررسی این پاسخ را ندارید.", show_alert=True)
+        return
+    content = submission.text or (f"فایل {submission.file_type} دریافت شده است." if submission.file_id else "بدون محتوای متنی")
+    await callback.message.answer(f"📝 <b>{escape(homework.title)}</b>\n\n{escape(content)}\n\nبازخورد مدیر را ارسال کنید:", reply_markup=cancel_kb())
+    await state.update_data(review_submission_id=submission.id)
+    await state.set_state(ReviewSubmissionForm.feedback)
+    await callback.answer()
+
+
+@router.message(ReviewSubmissionForm.feedback, F.text)
+async def review_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if message.text == "❌ انصراف":
+        await state.clear()
+        return
+    user = await get_user(session, message.from_user)
+    data = await state.get_data()
+    submission = await session.get(HomeworkSubmission, data["review_submission_id"])
+    if submission is None:
+        await state.clear()
+        await message.answer("پاسخ موردنظر پیدا نشد.")
+        return
+    homework = await session.get(Homework, submission.homework_id)
+    if homework is None or not await is_class_manager(session, user, homework.class_id):
+        await state.clear()
+        await message.answer("دسترسی بررسی این پاسخ را ندارید.")
+        return
+    submission.feedback = message.text.strip()
+    submission.status = "reviewed"
+    submission.reviewed_by = user.id
+    submission.reviewed_at = datetime.now(timezone.utc)
+    await session.flush()
+    student = await session.get(User, submission.student_id)
+    if student and student.private_chat_started:
+        try:
+            await message.bot.send_message(student.telegram_id, f"📝 بازخورد تکلیف «{escape(homework.title)}»:\n{escape(submission.feedback)}")
+        except Exception:
+            pass
+    await state.clear()
+    await message.answer("✅ بازخورد ثبت و برای دانش‌آموز ارسال شد.", reply_markup=await menu_for(session, user))
 
 
 async def evaluation_panel(message: Message, session: AsyncSession, state: FSMContext, class_id: int) -> None:
