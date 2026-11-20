@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.core.enums import RecordStatus
-from classmate.db.models import Attendance, Exam, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, Subject, User
+from classmate.db.models import Attendance, ClassMembership, Exam, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, Subject, User
 from classmate.services.permissions import user_can_access_class
 
 
@@ -23,7 +23,19 @@ async def save_submission(session: AsyncSession, homework_id: int, student_id: i
     if homework is None or homework.status != RecordStatus.APPROVED:
         raise ValueError("این تکلیف در دسترس نیست.")
     student = await session.get(User, student_id)
-    if student is None or not await user_can_access_class(session, student, homework.class_id):
+    membership_id = await session.scalar(
+        select(ClassMembership.id).where(
+            ClassMembership.class_id == homework.class_id,
+            ClassMembership.user_id == student_id,
+            ClassMembership.is_active.is_(True),
+        )
+    )
+    if (
+        student is None
+        or not student.is_active
+        or membership_id is None
+        or await user_can_access_class(session, student, homework.class_id) is False
+    ):
         raise PermissionError("فقط عضو فعال کلاس می‌تواند پاسخ تکلیف را ارسال کند.")
     item = await session.scalar(select(HomeworkSubmission).where(HomeworkSubmission.homework_id == homework_id, HomeworkSubmission.student_id == student_id))
     if item is None:
@@ -86,7 +98,19 @@ async def answer_poll(session: AsyncSession, poll_id: int, user_id: int, option_
             return False
 
     user = await session.get(User, user_id)
-    if user is None or not await user_can_access_class(session, user, poll.class_id):
+    membership_id = await session.scalar(
+        select(ClassMembership.id).where(
+            ClassMembership.class_id == poll.class_id,
+            ClassMembership.user_id == user_id,
+            ClassMembership.is_active.is_(True),
+        )
+    )
+    if (
+        user is None
+        or not user.is_active
+        or membership_id is None
+        or await user_can_access_class(session, user, poll.class_id) is False
+    ):
         return False
     option = await session.scalar(
         select(PollOption.id).where(
