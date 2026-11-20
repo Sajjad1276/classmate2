@@ -5,14 +5,16 @@ from html import escape
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.bot.keyboards import (
     admin_menu,
     class_picker,
+    education_menu,
     main_menu,
+    management_menu,
     manage_class_menu,
     new_record_menu,
 )
@@ -127,6 +129,7 @@ async def ask_class(message: Message, session: AsyncSession, action: str, user: 
     if len(classes) == 1:
         await run_view(message, session, action, classes[0][0], user)
         return
+    await message.answer("پنل قبلی بسته شد.", reply_markup=ReplyKeyboardRemove())
     await message.answer("🏫 کلاس موردنظر را انتخاب کنید:", reply_markup=class_picker(classes, action=action))
 
 
@@ -285,10 +288,19 @@ async def btn_pending(message: Message, session: AsyncSession) -> None:
     await ask_class(message, session, "pending", user)
 
 
+@router.message(F.text == "🎓 بخش آموزشی")
+async def btn_education(message: Message) -> None:
+    if message.chat.type != "private":
+        return
+    await message.answer("پنل قبلی بسته شد.", reply_markup=ReplyKeyboardRemove())
+    await message.answer("🎓 <b>بخش آموزشی</b>\nگزینه موردنظر را انتخاب کنید:", reply_markup=education_menu())
+
+
 @router.message(F.text.in_({"➕ ثبت اطلاعات", "ثبت جدید"}))
 async def btn_new(message: Message) -> None:
     if message.chat.type != "private":
         return
+    await message.answer("پنل قبلی بسته شد.", reply_markup=ReplyKeyboardRemove())
     await message.answer(
         "📝 <b>ثبت اطلاعات جدید</b>\n\n"
         "نوع اطلاعاتی را که می‌خواهید ثبت کنید انتخاب کنید:",
@@ -296,14 +308,15 @@ async def btn_new(message: Message) -> None:
     )
 
 
-@router.message(F.text == "⚙️ مدیریت کلاس")
+@router.message(F.text.in_({"⚙️ مدیریت", "⚙️ مدیریت کلاس"}))
 async def btn_manage(message: Message) -> None:
     if message.chat.type != "private":
         return
+    await message.answer("پنل قبلی بسته شد.", reply_markup=ReplyKeyboardRemove())
     await message.answer(
         "⚙️ <b>مدیریت کلاس</b>\n\n"
         "عملیات موردنظر را انتخاب کنید:",
-        reply_markup=manage_class_menu(),
+        reply_markup=management_menu(),
     )
 
 
@@ -332,17 +345,15 @@ async def btn_join(message: Message, state: FSMContext) -> None:
 async def btn_help(message: Message, session: AsyncSession) -> None:
     user = await get_user(session, message.from_user)
     await message.answer(
-        "<b>راهنمای جامع استفاده از ClassMate 2</b>\n\n"
-        "تمام امکانات از طریق دکمه‌های پایین صفحه و پنل‌های اینلاین انجام می‌شود؛ نیازی به حفظ فرمان‌ها ندارید.\n\n"
+        "<b>راهنمای کوتاه ClassMate 2</b>\n\n"
+        "همه امکانات از دکمه‌های پایین و پنل‌های اینلاین در دسترس است.\n\n"
         "<b>بخش‌های عمومی</b>\n"
         "• <b>🏠 داشبورد من</b> — خلاصه تکالیف نزدیک، امتحانات و اطلاعیه‌ها\n"
         "• <b>🏫 کلاس‌های من</b> — مشاهده کلاس‌های فعال شما\n"
         "• <b>🔎 جست‌وجو</b> — جست‌وجو در تکلیف، امتحان و گزارش\n"
-        "• <b>📚 تکالیف من</b> — مشاهده تکالیف تأییدشده\n"
-        "• <b>📝 تقویم امتحانات</b> — مشاهده امتحانات پیش‌رو\n"
-        "• <b>📅 برنامه هفتگی</b> — مشاهده برنامه کلاس‌ها\n"
+        "• <b>🎓 بخش آموزشی</b> — تکلیف، امتحان، برنامه، نمره، حضور و نظرسنجی\n"
         "• <b>📣 اطلاعیه‌ها</b> — مشاهده اطلاعیه‌های کلاس\n"
-        "• <b>🔔 تنظیم اعلان‌ها</b> — مدیریت یادآوری تکالیف و امتحانات\n\n"
+        "• <b>🔔 اعلان‌ها</b> — مدیریت یادآوری‌ها\n\n"
         "<b>امکانات آموزشی دانش‌آموز</b>\n"
         "• <b>📤 ارسال تکلیف</b> — ارسال پاسخ به‌صورت متن، فایل یا تصویر\n"
         "• <b>📊 نمرات من</b> — مشاهده نمرات، بازخورد و میانگین تقریبی\n"
@@ -362,12 +373,53 @@ async def btn_help(message: Message, session: AsyncSession) -> None:
     )
 
 
-# ── Inline: home / pick class ───────────────────────────────────────
+# ── Inline: category menus / home / pick class ─────────────────────
+
+
+@router.callback_query(F.data.startswith("menu:"))
+async def cb_category(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    action = callback.data.split(":", 1)[1]
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    user = await get_user(session, callback.from_user)
+    if action in {"homework", "exams", "week", "today", "content", "reviews", "evaluation"}:
+        mapped = {"reviews": "review_submissions", "content": "content"}.get(action, action)
+        classes = await classes_for_user(session, user)
+        if len(classes) == 1 and mapped in {"content", "review_submissions", "evaluation"}:
+            cid = classes[0][0]
+            if mapped == "content":
+                from classmate.bot.handlers.phase1 import _render_content
+                await _render_content(callback.message, session, cid)
+            elif mapped == "review_submissions":
+                from classmate.bot.handlers.phase2 import submissions_panel
+                await submissions_panel(callback.message, session, cid)
+            else:
+                from classmate.bot.handlers.phase2 import evaluation_panel
+                await evaluation_panel(callback.message, session, state, cid)
+        else:
+            await ask_class(callback.message, session, mapped, user)
+    elif action == "class_manage":
+        await callback.message.answer("⚙️ <b>مدیریت کلاس</b>\nعملیات موردنظر را انتخاب کنید:", reply_markup=manage_class_menu())
+    elif action == "admin":
+        await callback.message.answer("🏛 <b>مدیریت سامانه</b>\nعملیات موردنظر را انتخاب کنید:", reply_markup=admin_menu())
+    else:
+        from classmate.bot.handlers.phase2 import my_attendance, my_grades, polls, submit_entry
+        handlers = {"submit": submit_entry, "grades": my_grades, "attendance": my_attendance, "polls": polls}
+        handler = handlers.get(action)
+        if handler:
+            await handler(callback.message, session)
+    await callback.answer()
 
 
 @router.callback_query(F.data == "ui:home")
 async def cb_home(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await state.clear()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     user = await get_user(session, callback.from_user)
     await callback.message.answer(
         "🏠 <b>منوی اصلی</b>\n\n"

@@ -11,23 +11,17 @@ def main_menu(
 ) -> ReplyKeyboardMarkup:
     rows: list[list[KeyboardButton]] = [
         [KeyboardButton(text="🏠 داشبورد من"), KeyboardButton(text="🏫 کلاس‌های من")],
-        [KeyboardButton(text="➕ ثبت اطلاعات"), KeyboardButton(text="🔎 جست‌وجو")],
-        [KeyboardButton(text="📚 تکالیف من"), KeyboardButton(text="📝 تقویم امتحانات")],
-        [KeyboardButton(text="📅 برنامه هفتگی"), KeyboardButton(text="📣 اطلاعیه‌ها")],
-        [KeyboardButton(text="📋 گزارش‌های امروز"), KeyboardButton(text="🔔 تنظیم اعلان‌ها")],
-        [KeyboardButton(text="📤 ارسال تکلیف"), KeyboardButton(text="📊 نمرات من")],
-        [KeyboardButton(text="🟢 حضور من"), KeyboardButton(text="🗳 نظرسنجی‌ها")],
+        [KeyboardButton(text="🎓 بخش آموزشی"), KeyboardButton(text="➕ ثبت اطلاعات")],
+        [KeyboardButton(text="🔎 جست‌وجو"), KeyboardButton(text="📣 اطلاعیه‌ها")],
+        [KeyboardButton(text="🔔 اعلان‌ها"), KeyboardButton(text="🆘 پشتیبانی")],
     ]
     if is_approver:
         rows.append([KeyboardButton(text="🕓 موارد در انتظار بررسی")])
     if is_manager:
-        rows.append([KeyboardButton(text="⚙️ مدیریت کلاس"), KeyboardButton(text="🗂 مدیریت محتوا")])
-        rows.append([KeyboardButton(text="👨‍🏫 ارزیابی کلاس")])
-        rows.append([KeyboardButton(text="📝 بررسی پاسخ‌ها")])
+        rows.append([KeyboardButton(text="⚙️ مدیریت")])
     if is_admin:
         rows.append([KeyboardButton(text="🏛 مدیریت سامانه")])
-    rows.append([KeyboardButton(text="🆘 پشتیبانی"), KeyboardButton(text="❓ راهنمای استفاده")])
-    rows.append([KeyboardButton(text="🔑 ورود با کد دعوت")])
+    rows.append([KeyboardButton(text="❓ راهنما"), KeyboardButton(text="🔑 ورود با کد دعوت")])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True, is_persistent=True)
 
 
@@ -61,6 +55,28 @@ def new_record_menu() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="« بازگشت به منو", callback_data="ui:home")],
         ]
     )
+
+
+def education_menu() -> InlineKeyboardMarkup:
+    """Compact learning hub; detailed actions stay in inline navigation."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📚 تکالیف", callback_data="menu:homework"), InlineKeyboardButton(text="📝 امتحانات", callback_data="menu:exams")],
+        [InlineKeyboardButton(text="📅 برنامه", callback_data="menu:week"), InlineKeyboardButton(text="📋 گزارش امروز", callback_data="menu:today")],
+        [InlineKeyboardButton(text="📤 ارسال تکلیف", callback_data="menu:submit"), InlineKeyboardButton(text="📊 نمرات", callback_data="menu:grades")],
+        [InlineKeyboardButton(text="🟢 حضور", callback_data="menu:attendance"), InlineKeyboardButton(text="🗳 نظرسنجی", callback_data="menu:polls")],
+        [InlineKeyboardButton(text="« بازگشت", callback_data="ui:home")],
+    ])
+
+
+def management_menu(*, is_admin: bool = False) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="⚙️ کلاس", callback_data="menu:class_manage"), InlineKeyboardButton(text="🗂 محتوا", callback_data="menu:content")],
+        [InlineKeyboardButton(text="👨‍🏫 ارزیابی", callback_data="menu:evaluation"), InlineKeyboardButton(text="📝 پاسخ‌ها", callback_data="menu:reviews")],
+    ]
+    if is_admin:
+        rows.append([InlineKeyboardButton(text="🏛 سامانه", callback_data="menu:admin")])
+    rows.append([InlineKeyboardButton(text="« بازگشت", callback_data="ui:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def manage_class_menu() -> InlineKeyboardMarkup:
