@@ -3,7 +3,7 @@
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.core.enums import EntityType, RecordStatus
@@ -18,6 +18,7 @@ from classmate.db.models import (
     Homework,
     LessonSession,
     ReminderJob,
+    TelegramOutbox,
     School,
     Subject,
     TimetableEntry,
@@ -279,6 +280,22 @@ async def audit(
     )
 
 
+async def _cancel_pending_outbox_for_record(
+    session: AsyncSession, entity_type: str, entity_id: int
+) -> None:
+    await session.execute(
+        update(TelegramOutbox)
+        .where(
+            TelegramOutbox.entity_type == entity_type,
+            TelegramOutbox.entity_id == entity_id,
+            TelegramOutbox.status.in_(
+                [OutboxStatus.PENDING, OutboxStatus.RETRY, OutboxStatus.PROCESSING]
+            ),
+        )
+        .values(status=OutboxStatus.CANCELLED, locked_at=None)
+    )
+
+
 async def approve_record(
     session: AsyncSession,
     entity_type: str,
@@ -306,6 +323,7 @@ async def approve_record(
         return False, "ثبت‌کننده اجازه تأیید درخواست خودش را ندارد."
 
     record.status = RecordStatus.APPROVED
+    await _cancel_pending_outbox_for_record(session, entity_type, entity_id)
     record.approved_by = actor_id
     record.approved_at = datetime.now(ZoneInfo(timezone_name))
     session.add(
@@ -362,6 +380,7 @@ async def reject_record(
         return False, "این مورد در وضعیت قابل رد نیست."
 
     record.status = RecordStatus.REJECTED
+    await _cancel_pending_outbox_for_record(session, entity_type, entity_id)
     session.add(
         ApprovalEvent(
             entity_type=entity_type,
