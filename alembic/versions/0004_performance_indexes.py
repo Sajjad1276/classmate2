@@ -11,7 +11,7 @@ from sqlalchemy import inspect
 revision: str = "0004"
 down_revision: Union[str, None] = "0003"
 branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None]
+depends_on: Union[str, Sequence[str], None] = None
 
 INDEXES = (
     ("ix_class_memberships_user_active_class", "class_memberships", ("user_id", "is_active", "class_id")),
@@ -26,7 +26,7 @@ INDEXES = (
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = inspect(bind)
-    for name, table, columns in INDEXES_:
+    for name, table, columns in INDEXES:
         if not inspector.has_table(table):
             continue
         existing = {item["name"] for item in inspector.get_indexes(table)}
