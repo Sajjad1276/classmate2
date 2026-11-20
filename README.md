@@ -23,14 +23,17 @@ alembic upgrade head
 
 ## Main flows (all via buttons)
 
-1. `/start` → main menu
-2. **مدیریت سامانه** → ساخت مدرسه / کلاس (admin)
-3. **مدیریت کلاس** → کد اتصال و عضویت، درس، برنامه
-4. In the class group: paste the **connect code**
-5. **عضویت با کد** → student joins
-6. **ثبت جدید** → تکلیف / امتحان / گزارش (wizard)
-7. Approvers tap ✅ / ❌ on the group card
-8. **تکالیف / امتحانات / برنامه / گزارش‌های امروز** to view
+1. `/start` → welcome message and the main menu
+2. **🔑 ورود با کد دعوت** → student joins a class
+3. **🏠 داشبورد من** → upcoming homework, exams and announcements
+4. **➕ ثبت اطلاعات** → homework / exam / daily report wizard
+5. Approvers tap ✅ / ❌ on the group card
+6. **📤 ارسال تکلیف** → student submits text, a document or a photo
+7. **📝 بررسی پاسخ‌ها** → class manager reviews submissions and sends feedback
+8. **📊 نمرات من / 🟢 حضور من** → student learning history
+9. **🗳 نظرسنجی‌ها** → polls and short quizzes
+10. **👨‍🏫 ارزیابی کلاس** → manager records grades, attendance and polls
+11. **🆘 پشتیبانی** → direct support via `@Mizanup`
 
 ## Stack
 
@@ -45,6 +48,10 @@ Python 3.12 · aiogram 3 · SQLAlchemy 2 · PostgreSQL · Redis · Docker
 - Manager tools for entering grades, attendance and creating polls
 - Semantic button styling: blue for navigation, green for confirmation, yellow for follow-up and red for cancellation
 - Dedicated support entry point: `@Mizanup`
+
+## Welcome and help UX
+
+The `/start` message introduces the dashboard, class invitation flow, homework submission, grades, attendance, polls and support. The **❓ راهنمای استفاده** button contains the full role-aware guide, including the manager-only review and evaluation tools.
 
 After deploying phase two, run:
 
