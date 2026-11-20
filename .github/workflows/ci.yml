@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, "feat/**"]
   pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
   test:
@@ -19,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      - name: Ruff
+      - name: Ruff (syntax and name-resolution checks)
         run: ruff check src tests
 
       - name: Tests
