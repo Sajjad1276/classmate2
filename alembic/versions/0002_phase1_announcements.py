@@ -1,4 +1,4 @@
-"""Historical compatibility revision; the frozen 0001 baseline already includes announcements."""
+"""Ensure the announcements table exists for phase one."""
 
 from typing import Sequence, Union
 
@@ -11,10 +11,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Kept as a no-op for databases that already ran the original bootstrap.
-    pass
+    # Use the immutable initial snapshot for databases whose original 0001
+    # revision ran before announcements existed in the application models.
+    from classmate.db.schema_v0001 import Announcement
+
+    Announcement.__table__.create(bind=op.get_bind(), checkfirst=True)
 
 
 def downgrade() -> None:
-    # Never drop application data during a migration rollback.
+    # Historical bootstrap may have created this table before 0002 was stamped.
+    # Do not drop data automatically.
     pass
