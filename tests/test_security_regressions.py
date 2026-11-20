@@ -1,6 +1,7 @@
 """Regression tests for authorization, voting and reminder integrity."""
 
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -21,6 +22,8 @@ from classmate.services.phase1 import archive_record
 from classmate.services.phase2 import answer_poll, save_submission
 from classmate.services.permissions import (
     activate_student_membership,
+    connect_group_by_code,
+    hash_code,
     user_can_access_class,
 )
 from classmate.services.records import create_homework
@@ -266,4 +269,170 @@ async def test_telegram_outbox_enqueue_is_idempotent_and_detects_key_collisions(
     with pytest.raises(ValueError, match="reused with a different payload"):
         await enqueue_telegram_message(
             session, **{**args, "text": "متن دیگری با همان کلید"}
+        )
+
+
+
+@pytest.mark.asyncio
+async def test_legacy_join_command_does_not_restore_a_revoked_manager_role(world):
+    from classmate.bot.handlers.onboarding import join_class
+
+    session = world["session"]
+    membership = await session.scalar(
+        select(ClassMembership).where(
+            ClassMembership.class_id == world["class"].id,
+            ClassMembership.user_id == world["manager"].id,
+        )
+    )
+    membership.is_active = False
+    code = "ABCD2345"
+    world["class"].member_join_code_hash = hash_code(code)
+    world["class"].member_join_code_expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    await session.flush()
+
+    sent = []
+
+    async def answer(message):
+        sent.append(message)
+
+    message = SimpleNamespace(
+        text=f"/join {code}",
+        chat=SimpleNamespace(type="private"),
+        from_user=SimpleNamespace(
+            id=world["manager"].telegram_id,
+            username=world["manager"].username,
+            full_name=world["manager"].full_name,
+            first_name=world["manager"].full_name,
+        ),
+        answer=answer,
+    )
+
+    await join_class(message, session)
+
+    assert membership.is_active is True
+    assert membership.role == Role.STUDENT
+    assert sent and "ملحق شدید" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_group_link_requires_class_manager_and_both_telegram_admins(world):
+    code = "WXYZ2345"
+    cls = world["class"]
+    cls.group_link_code_hash = hash_code(code)
+    cls.group_link_code_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    session = world["session"]
+
+    with pytest.raises(PermissionError, match="مدیر همین کلاس"):
+        await connect_group_by_code(
+            session,
+            code=code,
+            chat_id=-1001234567001,
+            chat_title="گروه هدف",
+            actor=world["student"],
+            bot_is_admin=True,
+            actor_is_admin=True,
+        )
+
+    with pytest.raises(PermissionError, match="مدیر یا مالک گروه"):
+        await connect_group_by_code(
+            session,
+            code=code,
+            chat_id=-1001234567001,
+            chat_title="گروه هدف",
+            actor=world["manager"],
+            bot_is_admin=True,
+            actor_is_admin=False,
+        )
+
+    with pytest.raises(PermissionError, match="ربات باید"):
+        await connect_group_by_code(
+            session,
+            code=code,
+            chat_id=-1001234567001,
+            chat_title="گروه هدف",
+            actor=world["manager"],
+            bot_is_admin=False,
+            actor_is_admin=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_group_link_cannot_overwrite_existing_class_or_group_binding(world):
+    from classmate.db.models import ClassGroup
+
+    session = world["session"]
+    cls = world["class"]
+    code = "EFGH2345"
+    cls.group_link_code_hash = hash_code(code)
+    cls.group_link_code_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    cls.group_chat_id = -1001234567002
+
+    with pytest.raises(ValueError, match="از قبل به گروه دیگری"):
+        await connect_group_by_code(
+            session,
+            code=code,
+            chat_id=-1001234567003,
+            chat_title="گروه جدید",
+            actor=world["manager"],
+            bot_is_admin=True,
+            actor_is_admin=True,
+        )
+
+    other = ClassGroup(
+        academic_year_id=world["year"].id,
+        name="دهم ۱۰۲",
+        grade="دهم",
+        section="۱۰۲",
+        group_chat_id=-1001234567004,
+    )
+    session.add(other)
+    await session.flush()
+    cls.group_chat_id = None
+    code2 = "JKLM2345"
+    cls.group_link_code_hash = hash_code(code2)
+    cls.group_link_code_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    with pytest.raises(ValueError, match="قبلاً به کلاس دیگری"):
+        await connect_group_by_code(
+            session,
+            code=code2,
+            chat_id=-1001234567004,
+            chat_title="گروه تکراری",
+            actor=world["manager"],
+            bot_is_admin=True,
+            actor_is_admin=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_group_link_rejects_expired_code_and_inactive_school(world):
+    session = world["session"]
+    cls = world["class"]
+    code = "PQRS2345"
+    cls.group_link_code_hash = hash_code(code)
+    cls.group_link_code_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+
+    with pytest.raises(ValueError, match="منقضی"):
+        await connect_group_by_code(
+            session,
+            code=code,
+            chat_id=-1001234567005,
+            chat_title="گروه",
+            actor=world["manager"],
+            bot_is_admin=True,
+            actor_is_admin=True,
+        )
+
+    cls.group_link_code_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    world["school"].is_active = False
+    assert not await user_can_access_class(session, world["student"], cls.id)
+    with pytest.raises(ValueError, match="معتبر نیست"):
+        await connect_group_by_code(
+            session,
+            code=code,
+            chat_id=-1001234567005,
+            chat_title="گروه",
+            actor=world["manager"],
+            bot_is_admin=True,
+            actor_is_admin=True,
         )
