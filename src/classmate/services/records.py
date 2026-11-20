@@ -1,6 +1,7 @@
 """Homework, exam, report creation and approval."""
 
 from datetime import date, datetime, time, timedelta
+from html import escape
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update
@@ -24,7 +25,8 @@ from classmate.db.models import (
     TimetableEntry,
     User,
 )
-from classmate.domain.dates import persian_weekday
+from classmate.domain.dates import jalali_date, jalali_datetime, persian_weekday
+from classmate.services.outbox import enqueue_telegram_message
 from classmate.services.notifications import schedule_approved_record_reminders
 from classmate.services.permissions import can_approve, get_class_with_school, is_class_manager
 
@@ -204,7 +206,11 @@ async def _require_active_creator(session: AsyncSession, user_id: int) -> None:
 
 
 async def _creation_approval_context(
-    session: AsyncSession, class_id: int, created_by: int
+    session: AsyncSession,
+    class_id: int,
+    created_by: int,
+    *,
+    include_trusted_approver: bool = False,
 ) -> tuple[bool, int, str]:
     """Return whether the creator owns class publishing rights and the school context."""
     context = await get_class_with_school(session, class_id)
@@ -214,11 +220,80 @@ async def _creation_approval_context(
     if creator is None or not creator.is_active:
         raise PermissionError("حساب ثبت‌کننده فعال نیست.")
     school = context[2]
-    return (
-        await is_class_manager(session, creator, class_id),
-        school.id,
-        school.timezone,
+    publisher = (
+        await can_approve(session, creator, class_id)
+        if include_trusted_approver
+        else await is_class_manager(session, creator, class_id)
     )
+    return publisher, school.id, school.timezone
+
+
+async def _queue_approved_record_publication(
+    session: AsyncSession,
+    entity_type: str,
+    record: Homework | Exam | DailyReport,
+    timezone_name: str,
+) -> bool:
+    """Publish an approved record to the linked class group, never a pending one."""
+    if record.status != RecordStatus.APPROVED:
+        return False
+    context = await get_class_with_school(session, record.class_id)
+    if context is None:
+        return False
+    class_group = context[0]
+    if class_group.group_chat_id is None:
+        return False
+
+    creator = await session.get(User, record.created_by)
+    creator_name = escape(creator.full_name if creator is not None else "عضو کلاس")
+    lines: list[str]
+    if entity_type == EntityType.HOMEWORK.value and isinstance(record, Homework):
+        subject = await session.get(Subject, record.subject_id)
+        due = jalali_date(record.due_on) if record.due_on else "بدون موعد"
+        lines = [
+            "📚 <b>تکلیف جدید منتشر شد</b>",
+            f"کلاس: {escape(class_group.name)}",
+            f"درس: {escape(subject.name if subject is not None else '—')}",
+            f"عنوان: {escape(record.title)}",
+            f"توضیحات: {escape(record.description[:1600])}",
+            f"موعد: {due}",
+            f"ثبت‌کننده: {creator_name}",
+        ]
+    elif entity_type == EntityType.EXAM.value and isinstance(record, Exam):
+        subject = await session.get(Subject, record.subject_id)
+        lines = [
+            "📝 <b>امتحان جدید منتشر شد</b>",
+            f"کلاس: {escape(class_group.name)}",
+            f"درس: {escape(subject.name if subject is not None else '—')}",
+            f"عنوان: {escape(record.title)}",
+            f"محدوده: {escape(record.scope[:1200] or '—')}",
+            f"زمان: {jalali_datetime(record.scheduled_at, timezone_name)}",
+            f"ثبت‌کننده: {creator_name}",
+        ]
+    elif entity_type == EntityType.REPORT.value and isinstance(record, DailyReport):
+        lines = [
+            "📋 <b>گزارش روزانه منتشر شد</b>",
+            f"کلاس: {escape(class_group.name)}",
+            f"تاریخ: {jalali_date(record.report_date)}",
+            f"عنوان: {escape((record.title or 'گزارش روزانه')[:180])}",
+            escape(record.body[:2200]),
+            f"ثبت‌کننده: {creator_name}",
+        ]
+    else:
+        return False
+
+    await enqueue_telegram_message(
+        session,
+        target_type="group",
+        target_chat_id=class_group.group_chat_id,
+        class_id=class_group.id,
+        text="\\n".join(lines),
+        entity_type=entity_type,
+        entity_id=record.id,
+        expected_record_status=RecordStatus.APPROVED.value,
+        idempotency_key=f"publish:{entity_type}:{record.id}",
+    )
+    return True
 
 
 async def _record_auto_approval(
@@ -259,6 +334,17 @@ async def _record_auto_approval(
             await schedule_approved_record_reminders(
                 session, class_group, record, entity_type, timezone_name
             )
+    await _queue_approved_record_publication(
+        session,
+        entity_type,
+        await session.get(
+            Homework if entity_type == EntityType.HOMEWORK.value else Exam
+            if entity_type == EntityType.EXAM.value
+            else DailyReport,
+            entity_id,
+        ),
+        timezone_name,
+    )
 
 
 async def create_homework(
@@ -372,7 +458,7 @@ async def create_daily_report(
 ) -> DailyReport:
     await _require_active_creator(session, created_by)
     auto_approved, school_id, timezone_name = await _creation_approval_context(
-        session, class_id, created_by
+        session, class_id, created_by, include_trusted_approver=True
     )
     approved_at = datetime.now(ZoneInfo(timezone_name)) if auto_approved else None
     if not body.strip():
@@ -502,7 +588,10 @@ async def approve_record(
             await schedule_approved_record_reminders(
                 session, class_group, record, entity_type, timezone_name
             )
-    return True, "اطلاعات تأیید شد."
+    await _queue_approved_record_publication(
+        session, entity_type, record, timezone_name
+    )
+    return True, "اطلاعات تأیید شد و برای انتشار آماده شد."
 
 
 async def reject_record(
@@ -528,6 +617,8 @@ async def reject_record(
         return False, "اطلاعات موردنظر پیدا نشد."
     if record.status not in {RecordStatus.PENDING, RecordStatus.REVISION_REQUESTED}:
         return False, "این مورد در وضعیت قابل رد نیست."
+    if record.created_by == actor_id:
+        return False, "ثبت‌کننده اجازه رد درخواست خودش را ندارد."
     actor = await session.get(User, actor_id)
     if actor is None or not await can_approve(session, actor, class_id):
         return False, "شما اجازه رد موارد این کلاس را ندارید."
