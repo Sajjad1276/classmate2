@@ -177,8 +177,6 @@ async def _save_answer(message: Message, state: FSMContext, session: AsyncSessio
 async def my_grades(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    if message.chat.type != "private":
-        return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = await classes_for_user(session, user)
     rows = await student_grades(session, user.id, [row[0] for row in classes])
@@ -202,8 +200,6 @@ async def my_grades(message: Message, session: AsyncSession) -> None:
 async def my_attendance(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    if message.chat.type != "private":
-        return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = await classes_for_user(session, user)
     rows = await student_attendance(session, user.id, [row[0] for row in classes])
@@ -222,8 +218,6 @@ async def my_attendance(message: Message, session: AsyncSession) -> None:
 
 @router.message(F.text.in_({"🗳 نظرسنجی‌ها", "نظرسنجی"}))
 async def polls(message: Message, session: AsyncSession) -> None:
-    if message.chat.type != "private":
-        return
     if message.chat.type != "private":
         return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
