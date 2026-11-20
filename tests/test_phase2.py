@@ -31,7 +31,7 @@ async def test_student_grade_and_attendance_views(world):
     session.add(Grade(class_id=world["class"].id, student_id=world["student"].id, subject_id=world["subject"].id, source_type="manual", score=18, max_score=20, feedback="خوب", graded_by=world["manager"].id))
     session.add(Attendance(class_id=world["class"].id, student_id=world["student"].id, attendance_date=date.today(), status="present", marked_by=world["manager"].id))
     await session.flush()
-    grades = await student_grades(session, world["student"].id)
+    grades = await student_grades(session, world["student"].id, [world["class"].id])
     attendance = await student_attendance(session, world["student"].id, [world["class"].id])
     assert len(grades) == 1
     assert grades[0][0].score == 18
