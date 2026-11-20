@@ -1,6 +1,7 @@
 """Dependency injection middlewares."""
 
 from collections.abc import Awaitable, Callable
+import logging
 from typing import Any
 
 from aiogram import BaseMiddleware
@@ -8,6 +9,8 @@ from aiogram.types import TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.db.session import SessionFactory
+
+logger = logging.getLogger(__name__)
 
 
 class DbSessionMiddleware(BaseMiddleware):
@@ -26,5 +29,8 @@ class DbSessionMiddleware(BaseMiddleware):
                 await session.commit()
                 return result
             except Exception:
-                await session.rollback()
+                try:
+                    await session.rollback()
+                except Exception:
+                    logger.exception("Database rollback failed after handler error")
                 raise

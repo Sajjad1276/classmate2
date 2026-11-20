@@ -1,5 +1,6 @@
 """Phase-two learning workflows and support surface."""
 
+import logging
 from datetime import date, datetime, timezone
 from html import escape
 
@@ -28,6 +29,7 @@ from classmate.services.phase2 import (
 )
 
 router = Router(name="phase2")
+logger = logging.getLogger(__name__)
 
 
 def color_button(prefix: str, text: str, callback: str) -> InlineKeyboardButton:
@@ -280,7 +282,7 @@ async def review_submit(message: Message, state: FSMContext, session: AsyncSessi
         try:
             await message.bot.send_message(student.telegram_id, f"📝 بازخورد تکلیف «{escape(homework.title)}»:\n{escape(submission.feedback)}")
         except Exception:
-            pass
+            logger.warning("Could not send submission feedback to student", exc_info=True)
     await state.clear()
     await message.answer("✅ بازخورد ثبت و برای دانش‌آموز ارسال شد.", reply_markup=await menu_for(session, user))
 

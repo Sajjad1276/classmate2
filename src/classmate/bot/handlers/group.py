@@ -1,5 +1,6 @@
 """Inline control panel inside connected class groups."""
 
+import logging
 from html import escape
 
 from aiogram import F, Router
@@ -13,6 +14,7 @@ from classmate.bot.keyboards import group_panel
 from classmate.services.records import get_group_context
 
 router = Router(name="group")
+logger = logging.getLogger(__name__)
 
 PANEL_TRIGGERS = {
     "منو",
@@ -89,6 +91,7 @@ async def cb_refresh_panel(callback: CallbackQuery, session: AsyncSession) -> No
             reply_markup=group_panel(class_id=class_id, class_name=class_group.name),
         )
     except Exception:
+        logger.warning("Could not edit group panel message; using a new message", exc_info=True)
         await callback.message.answer(
             text,
             reply_markup=group_panel(class_id=class_id, class_name=class_group.name),

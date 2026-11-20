@@ -229,7 +229,7 @@ async def timetable_set(message: Message, session: AsyncSession) -> None:
         sh, sm = map(int, start_s.split(":"))
         eh, em = map(int, end_s.split(":"))
         starts, ends = dtime(sh, sm), dtime(eh, em)
-    except Exception:
+    except (ValueError, IndexError, TypeError):
         await message.answer(
             "قالب: /timetable_set شنبه | ۱ | ریاضی | 08:00-08:45"
         )

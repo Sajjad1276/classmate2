@@ -1,5 +1,6 @@
 """Multi-step FSM wizards — no slash commands needed."""
 
+import logging
 from datetime import date, time as dtime
 from html import escape
 
@@ -59,6 +60,7 @@ from classmate.services.records import (
 )
 
 router = Router(name="wizards")
+logger = logging.getLogger(__name__)
 
 WEEK_NAMES = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
 
@@ -350,7 +352,7 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
                 reply_markup=approval_keyboard("homework", record.id),
             )
         except Exception:
-            pass
+            logger.warning("Could not send homework approval notification", exc_info=True)
 
     await state.clear()
     await message.answer(
@@ -434,7 +436,7 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
                 reply_markup=approval_keyboard("exam", record.id),
             )
         except Exception:
-            pass
+            logger.warning("Could not send exam approval notification", exc_info=True)
     await state.clear()
     await message.answer("✅ امتحان ثبت شد و در انتظار بررسی و تأیید است.", reply_markup=await menu_for(session, user))
 
@@ -465,7 +467,7 @@ async def report_body(message: Message, state: FSMContext, session: AsyncSession
                 reply_markup=approval_keyboard("report", record.id),
             )
         except Exception:
-            pass
+            logger.warning("Could not send report approval notification", exc_info=True)
     await state.clear()
     await message.answer("✅ گزارش ثبت شد و در انتظار بررسی و تأیید است.", reply_markup=await menu_for(session, user))
 
@@ -719,7 +721,7 @@ async def tt_time(message: Message, state: FSMContext, session: AsyncSession) ->
         sh, sm = map(int, start_s.split(":"))
         eh, em = map(int, end_s.split(":"))
         starts, ends = dtime(sh, sm), dtime(eh, em)
-    except Exception:
+    except (ValueError, IndexError, TypeError):
         await message.answer("قالب زمان صحیح: 08:00-08:45")
         return
 

@@ -1,6 +1,6 @@
 from aiogram import Router
 
-from classmate.bot.handlers import approvals, group, phase1, phase2, start, ui, wizards
+from classmate.bot.handlers import approvals, errors, group, phase1, phase2, start, ui, wizards
 
 
 def setup_routers() -> Router:
@@ -12,4 +12,5 @@ def setup_routers() -> Router:
     root.include_router(wizards.router)
     root.include_router(start.router)
     root.include_router(approvals.router)
+    root.include_router(errors.router)
     return root

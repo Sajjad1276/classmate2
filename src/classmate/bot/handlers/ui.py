@@ -1,5 +1,6 @@
 """Button-first navigation: menus, class picker, view actions."""
 
+import logging
 from datetime import date
 from html import escape
 
@@ -37,6 +38,7 @@ from classmate.services.records import list_exams, list_homework, list_pending_r
 from classmate.services.users import ensure_user
 
 router = Router(name="ui")
+logger = logging.getLogger(__name__)
 
 WEEKDAYS = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
 _ROLE_CACHE: dict[int, tuple[float, tuple[bool, bool, bool]]] = {}
@@ -50,7 +52,7 @@ async def render_panel(message: Message, text: str, markup) -> None:
         await panel.edit_reply_markup(reply_markup=markup)
     except Exception:
         # The text still remains useful even if an old Telegram client rejects the edit.
-        pass
+        logger.debug("Could not attach inline markup to newly sent panel", exc_info=True)
 
 
 async def get_user(session: AsyncSession, tg, private: bool = True) -> User:
@@ -406,7 +408,7 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
-        pass
+        logger.debug("Could not remove inline markup during navigation", exc_info=True)
     user = await get_user(session, callback.from_user)
     if action in {"homework", "exams", "week", "today", "content", "reviews", "evaluation"}:
         mapped = {"reviews": "review_submissions", "content": "content"}.get(action, action)
@@ -449,7 +451,7 @@ async def cb_home(callback: CallbackQuery, state: FSMContext, session: AsyncSess
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
-        pass
+        logger.debug("Could not remove inline markup during navigation", exc_info=True)
     user = await get_user(session, callback.from_user)
     await callback.message.answer(
         "🏠 <b>منوی اصلی</b>\n\n"
