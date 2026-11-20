@@ -223,11 +223,12 @@ async def connect_group_by_code(
     if current.tzinfo is None:
         raise ValueError("زمان بررسی کد باید دارای منطقه زمانی باشد.")
     expires_at = class_group.group_link_code_expires_at
-    if expires_at is not None:
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        if expires_at < current:
-            raise ValueError("کد اتصال منقضی شده است. لطفاً کد جدید دریافت کنید.")
+    if expires_at is None:
+        raise ValueError("کد اتصال فاقد تاریخ انقضا است. لطفاً کد جدید دریافت کنید.")
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < current:
+        raise ValueError("کد اتصال منقضی شده است. لطفاً کد جدید دریافت کنید.")
 
     conflict = await session.scalar(
         select(ClassGroup.id).where(
