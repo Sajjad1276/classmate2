@@ -159,16 +159,19 @@ async def new_exam(message: Message, session: AsyncSession) -> None:
 
 @router.message(Command("new_report"))
 async def new_report(message: Message, session: AsyncSession) -> None:
-    """Block the legacy group command; daily reports now require a private confirmation."""
+    """Keep the legacy command behind the class-manager gate and redirect to the wizard."""
     if message.chat.type in {"group", "supergroup"}:
-        await message.answer(
-            "برای ثبت گزارش روزانه، از گفت‌وگوی خصوصی ربات وارد «ثبت اطلاعات ← ثبت گزارش روزانه» شوید. "
-            "گزارش بدون پیش‌نمایش و تأیید شما در گروه منتشر نمی‌شود."
-        )
-        return
+        ctx, user = await _ctx(message, session)
+        if ctx is None:
+            await message.answer("این عملیات را فقط در گروه متصل به کلاس انجام دهید.")
+            return
+        class_group, _, _school = ctx
+        if not await is_class_manager(session, user, class_group.id):
+            await message.answer("فقط مدیر کلاس می‌تواند گزارش روزانه ثبت کند.")
+            return
     await message.answer(
-        "برای ثبت گزارش روزانه از پنل ربات استفاده کنید: «ثبت اطلاعات ← ثبت گزارش روزانه». "
-        "پیش از ارسال، متن را می‌توانید ویرایش یا لغو کنید."
+        "برای ثبت گزارش روزانه از گفت‌وگوی خصوصی ربات وارد «ثبت اطلاعات ← ثبت گزارش روزانه» شوید. "
+        "پیش از ثبت، متن را می‌توانید مشاهده، ویرایش یا لغو کنید؛ انتشار گزارش نیز فقط پس از تأیید انجام می‌شود."
     )
 
 
