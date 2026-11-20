@@ -37,7 +37,7 @@ def color_button(prefix: str, text: str, callback: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=f"{prefix} {text}", callback_data=callback)
 
 
-@router.message(F.text == "📤 ارسال تکلیف")
+@router.message(F.text.in_({"📤 ارسال تکلیف", "ارسال تکلیف"}))
 async def submit_entry(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -111,7 +111,7 @@ async def _save_answer(message: Message, state: FSMContext, session: AsyncSessio
     await message.answer("✅ پاسخ شما با موفقیت ثبت شد و برای بررسی دبیر ارسال گردید.", reply_markup=await menu_for(session, user))
 
 
-@router.message(F.text == "📊 نمرات من")
+@router.message(F.text.in_({"📊 نمرات من", "نمرات"}))
 async def my_grades(message: Message, session: AsyncSession) -> None:
     user = await get_user(session, message.from_user)
     rows = await student_grades(session, user.id)
@@ -129,7 +129,7 @@ async def my_grades(message: Message, session: AsyncSession) -> None:
     await message.answer("\n".join(lines))
 
 
-@router.message(F.text == "🟢 حضور من")
+@router.message(F.text.in_({"🟢 حضور من", "حضور"}))
 async def my_attendance(message: Message, session: AsyncSession) -> None:
     user = await get_user(session, message.from_user)
     classes = await classes_for_user(session, user)
@@ -146,7 +146,7 @@ async def my_attendance(message: Message, session: AsyncSession) -> None:
     await message.answer("\n".join(lines))
 
 
-@router.message(F.text == "🗳 نظرسنجی‌ها")
+@router.message(F.text.in_({"🗳 نظرسنجی‌ها", "نظرسنجی"}))
 async def polls(message: Message, session: AsyncSession) -> None:
     user = await get_user(session, message.from_user)
     classes = await classes_for_user(session, user)
@@ -186,7 +186,7 @@ async def phase2_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer("عملیات لغو شد.")
 
 
-@router.message(F.text == "🆘 پشتیبانی")
+@router.message(F.text.in_({"🆘 پشتیبانی", "پشتیبانی"}))
 async def support(message: Message, session: AsyncSession) -> None:
     user = await get_user(session, message.from_user)
     await message.answer(

@@ -293,7 +293,7 @@ async def btn_ex(message: Message, session: AsyncSession) -> None:
     await ask_class(message, session, "exams", user)
 
 
-@router.message(F.text.in_({"📅 برنامه هفتگی", "برنامه هفتگی"}))
+@router.message(F.text.in_({"📅 برنامه هفتگی", "برنامه هفتگی", "برنامه"}))
 async def btn_week(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -301,7 +301,7 @@ async def btn_week(message: Message, session: AsyncSession) -> None:
     await ask_class(message, session, "week", user)
 
 
-@router.message(F.text.in_({"📋 گزارش‌های امروز", "گزارش‌های امروز"}))
+@router.message(F.text.in_({"📋 گزارش‌های امروز", "گزارش‌های امروز", "گزارش امروز"}))
 async def btn_today(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -309,7 +309,7 @@ async def btn_today(message: Message, session: AsyncSession) -> None:
     await ask_class(message, session, "today", user)
 
 
-@router.message(F.text.in_({"🕓 موارد در انتظار بررسی", "در انتظار تأیید"}))
+@router.message(F.text.in_({"🕓 موارد در انتظار بررسی", "در انتظار تأیید", "موارد در انتظار بررسی"}))
 async def btn_pending(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -317,14 +317,14 @@ async def btn_pending(message: Message, session: AsyncSession) -> None:
     await ask_class(message, session, "pending", user)
 
 
-@router.message(F.text == "🎓 بخش آموزشی")
+@router.message(F.text.in_({"🎓 بخش آموزشی", "بخش آموزشی"}))
 async def btn_education(message: Message) -> None:
     if message.chat.type != "private":
         return
     await render_panel(message, "🎓 <b>بخش آموزشی</b>\nگزینه موردنظر را انتخاب کنید:", education_menu())
 
 
-@router.message(F.text.in_({"➕ ثبت اطلاعات", "ثبت جدید"}))
+@router.message(F.text.in_({"➕ ثبت اطلاعات", "ثبت اطلاعات", "ثبت جدید"}))
 async def btn_new(message: Message) -> None:
     if message.chat.type != "private":
         return
@@ -335,7 +335,7 @@ async def btn_new(message: Message) -> None:
     )
 
 
-@router.message(F.text.in_({"⚙️ مدیریت", "⚙️ مدیریت کلاس"}))
+@router.message(F.text.in_({"⚙️ مدیریت", "⚙️ مدیریت کلاس", "مدیریت", "مدیریت کلاس"}))
 async def btn_manage(message: Message) -> None:
     if message.chat.type != "private":
         return
@@ -346,7 +346,7 @@ async def btn_manage(message: Message) -> None:
     )
 
 
-@router.message(F.text == "🏛 مدیریت سامانه")
+@router.message(F.text.in_({"🏛 مدیریت سامانه", "مدیریت سامانه"}))
 async def btn_admin(message: Message) -> None:
     if message.chat.type != "private":
         return

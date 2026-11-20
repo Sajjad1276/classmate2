@@ -71,7 +71,7 @@ async def _render_dashboard(message: Message, session: AsyncSession, user) -> No
     await message.answer("\n".join(lines), reply_markup=dashboard_kb())
 
 
-@router.message(F.text == "🏠 داشبورد من")
+@router.message(F.text.in_({"🏠 داشبورد من", "داشبورد من"}))
 async def dashboard(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -122,7 +122,7 @@ async def _render_calendar(message: Message, session: AsyncSession, class_id: in
     await message.answer("\n".join(lines), reply_markup=dashboard_kb())
 
 
-@router.message(F.text == "🔎 جست‌وجو")
+@router.message(F.text.in_({"🔎 جست‌وجو", "جست‌وجو"}))
 async def search_entry(message: Message, state: FSMContext) -> None:
     if message.chat.type != "private":
         return
@@ -155,7 +155,7 @@ async def search_submit(message: Message, state: FSMContext, session: AsyncSessi
     await message.answer("\n".join(lines), reply_markup=await menu_for(session, user))
 
 
-@router.message(F.text == "🔔 تنظیم اعلان‌ها")
+@router.message(F.text.in_({"🔔 تنظیم اعلان‌ها", "اعلان‌ها", "تنظیم اعلان‌ها"}))
 async def notification_settings(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -198,7 +198,7 @@ async def toggle_preference(callback: CallbackQuery, session: AsyncSession) -> N
     await callback.answer("تنظیم اعلان‌ها به‌روزرسانی شد.")
 
 
-@router.message(F.text == "📣 اطلاعیه‌ها")
+@router.message(F.text.in_({"📣 اطلاعیه‌ها", "اطلاعیه‌ها"}))
 async def announcements(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -220,7 +220,7 @@ async def announcements(message: Message, session: AsyncSession) -> None:
     await message.answer(text, reply_markup=announcement_kb(manager))
 
 
-@router.message(F.text == "🗂 مدیریت محتوا")
+@router.message(F.text.in_({"🗂 مدیریت محتوا", "مدیریت محتوا"}))
 async def content_management(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
