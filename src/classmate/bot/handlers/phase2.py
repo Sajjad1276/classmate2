@@ -143,11 +143,12 @@ async def my_grades(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
-    rows = await student_grades(session, user.id)
+    classes = await classes_for_user(session, user)
+    rows = await student_grades(session, user.id, [row[0] for row in classes])
     if not rows:
         await render_panel(message, "📊 هنوز نمره‌ای برای شما ثبت نشده است.", education_result_kb())
         return
-    class_names = {class_id: name for class_id, name, _school in await classes_for_user(session, user)}
+    class_names = {class_id: name for class_id, name, _school in classes}
     lines = ["📊 <b>نمرات من</b>"]
     total = 0.0
     for grade, subject in rows:
