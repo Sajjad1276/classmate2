@@ -42,6 +42,8 @@ async def _user(session, tg, private=False):
 
 async def _ctx(message, session, class_id: int | None = None):
     user = await _user(session, message.from_user, private=message.chat.type == "private")
+    if not user.is_active:
+        return None, user
     if message.chat.type in {"group", "supergroup"}:
         return await get_group_context(session, message.chat.id), user
     if class_id is None:
