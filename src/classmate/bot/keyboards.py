@@ -75,6 +75,15 @@ def education_menu() -> InlineKeyboardMarkup:
     ])
 
 
+def education_result_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🎓 بازگشت به بخش آموزشی", callback_data="menu:education", style="primary")],
+            [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="ui:home", style="danger")],
+        ]
+    )
+
+
 def management_menu(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="⚙️ کلاس", callback_data="menu:class_manage", style="primary"), InlineKeyboardButton(text="🗂 محتوا", callback_data="menu:content", style="primary")],

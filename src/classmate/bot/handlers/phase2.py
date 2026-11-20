@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for, render_panel
-from classmate.bot.keyboards import cancel_kb, class_picker
+from classmate.bot.keyboards import cancel_kb, class_picker, education_result_kb
 from classmate.bot.states import EvaluationForm, PollCreateForm, ReviewSubmissionForm, SubmissionForm
 from classmate.core.enums import Role
 from classmate.db.models import Attendance, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, Subject, User
@@ -33,8 +33,9 @@ logger = logging.getLogger(__name__)
 
 
 def color_button(prefix: str, text: str, callback: str) -> InlineKeyboardButton:
-    """Telegram has no button-color API; prefixes provide consistent semantic color coding."""
-    return InlineKeyboardButton(text=f"{prefix} {text}", callback_data=callback)
+    """Use semantic prefixes and Telegram's supported button styles together."""
+    styles = {"🔴": "danger", "🟢": "success", "🔵": "primary", "🟡": "primary"}
+    return InlineKeyboardButton(text=f"{prefix} {text}", callback_data=callback, style=styles.get(prefix))
 
 
 @router.message(F.text.in_({"📤 ارسال تکلیف", "ارسال تکلیف"}))
@@ -58,7 +59,11 @@ async def submit_entry(message: Message, session: AsyncSession) -> None:
 async def _show_homeworks(message: Message, session: AsyncSession, class_id: int) -> None:
     rows = await approved_homeworks_for_student(session, class_id)
     if not rows:
-        await message.answer("📚 در این کلاس تکلیف تأییدشده‌ای برای ارسال پاسخ وجود ندارد.")
+        await render_panel(
+            message,
+            "📚 در این کلاس تکلیف تأییدشده‌ای برای ارسال پاسخ وجود ندارد.",
+            education_result_kb(),
+        )
         return
     buttons = []
     lines = ["📤 <b>ارسال پاسخ تکلیف</b>", "تکلیف موردنظر را انتخاب کنید:"]
@@ -89,6 +94,8 @@ async def submit_homework(callback: CallbackQuery, state: FSMContext, session: A
 async def submit_text(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         await state.clear()
+        user = await get_user(session, message.from_user)
+        await message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
         return
     await _save_answer(message, state, session, text=message.text)
 
@@ -118,48 +125,58 @@ async def _save_answer(message: Message, state: FSMContext, session: AsyncSessio
 
 @router.message(F.text.in_({"📊 نمرات من", "نمرات"}))
 async def my_grades(message: Message, session: AsyncSession) -> None:
+    if message.chat.type != "private":
+        return
     user = await get_user(session, message.from_user)
     rows = await student_grades(session, user.id)
     if not rows:
-        await message.answer("📊 هنوز نمره‌ای برای شما ثبت نشده است.")
+        await render_panel(message, "📊 هنوز نمره‌ای برای شما ثبت نشده است.", education_result_kb())
         return
+    class_names = {class_id: name for class_id, name, _school in await classes_for_user(session, user)}
     lines = ["📊 <b>نمرات من</b>"]
     total = 0.0
     for grade, subject in rows:
         total += grade.score / grade.max_score * 20 if grade.max_score else 0
         note = f" — {escape(grade.feedback)}" if grade.feedback else ""
-        lines.append(f"\n• {escape(subject.name)}: <b>{grade.score:g}</b> از {grade.max_score:g}{note}")
-    average = total / len(rows)
+        class_name = class_names.get(grade.class_id, "کلاس نامشخص")
+        lines.append(f"\n• <b>{escape(class_name)}</b> — {escape(subject.name)}: <b>{grade.score:g}</b> از {grade.max_score:g}{note}")
+    average = total / len(rows) if rows else 0
     lines.append(f"\n📈 میانگین تقریبی: <b>{average:.2f}</b> از ۲۰")
-    await message.answer("\n".join(lines))
+    await render_panel(message, "\n".join(lines), education_result_kb())
 
 
 @router.message(F.text.in_({"🟢 حضور من", "حضور"}))
 async def my_attendance(message: Message, session: AsyncSession) -> None:
+    if message.chat.type != "private":
+        return
     user = await get_user(session, message.from_user)
     classes = await classes_for_user(session, user)
     rows = await student_attendance(session, user.id, [row[0] for row in classes])
     if not rows:
-        await message.answer("🟢 هنوز سابقه حضور‌وغیابی برای شما ثبت نشده است.")
+        await render_panel(message, "🟢 هنوز سابقه حضور‌وغیابی برای شما ثبت نشده است.", education_result_kb())
         return
     labels = {"present": "✅ حاضر", "absent": "🔴 غایب", "late": "🟡 تأخیر", "excused": "🔵 موجه"}
+    class_names = {class_id: name for class_id, name, _school in classes}
     counts = {key: sum(row.status == key for row in rows) for key in labels}
     lines = ["🟢 <b>گزارش حضور‌وغیاب من</b>", ""]
     lines.extend(f"{labels[key]}: {counts[key]}" for key in labels)
     lines.append("\n<b>آخرین وضعیت‌ها</b>")
-    lines.extend(f"• {jalali_date(row.attendance_date)} — {labels.get(row.status, row.status)}" for row in rows[:10])
-    await message.answer("\n".join(lines))
+    lines.extend(f"• {jalali_date(row.attendance_date)} — {escape(class_names.get(row.class_id, 'کلاس نامشخص'))} — {labels.get(row.status, row.status)}" for row in rows[:10])
+    await render_panel(message, "\n".join(lines), education_result_kb())
 
 
 @router.message(F.text.in_({"🗳 نظرسنجی‌ها", "نظرسنجی"}))
 async def polls(message: Message, session: AsyncSession) -> None:
+    if message.chat.type != "private":
+        return
     user = await get_user(session, message.from_user)
     classes = await classes_for_user(session, user)
     rows = await active_polls(session, [row[0] for row in classes])
     if not rows:
-        await message.answer("🗳 در حال حاضر نظرسنجی فعالی برای شما وجود ندارد.")
+        await render_panel(message, "🗳 در حال حاضر نظرسنجی فعالی برای شما وجود ندارد.", education_result_kb())
         return
     buttons = [[color_button("🔵", poll.question[:45], f"p2:poll:{poll.id}")] for poll in rows]
+    buttons.append([color_button("🔴", "بازگشت", "menu:education")])
     await render_panel(
         message,
         "🗳 <b>نظرسنجی‌های فعال</b>\n\nبرای شرکت، یک مورد را انتخاب کنید:",
@@ -172,7 +189,9 @@ async def poll_open(callback: CallbackQuery, session: AsyncSession) -> None:
     poll_id = int(callback.data.split(":")[2])
     options = await poll_options(session, poll_id)
     if not options:
-        await callback.answer("گزینه‌ای برای این نظرسنجی ثبت نشده است.", show_alert=True)
+        await delete_panel(callback.message)
+        await render_panel(callback.message, "این نظرسنجی گزینه معتبری ندارد.", education_result_kb())
+        await callback.answer()
         return
     buttons = [[color_button("🟢", option.label, f"p2:vote:{poll_id}:{option.id}")] for option in options]
     buttons.append([color_button("🔴", "بستن", "p2:cancel")])
@@ -186,15 +205,25 @@ async def poll_open(callback: CallbackQuery, session: AsyncSession) -> None:
 async def poll_vote(callback: CallbackQuery, session: AsyncSession) -> None:
     _, _, poll_id_s, option_id_s = callback.data.split(":")
     user = await get_user(session, callback.from_user)
-    ok = await answer_poll(session, int(poll_id_s), user.id, int(option_id_s))
-    await callback.answer("✅ رأی شما ثبت شد." if ok else "این نظرسنجی دیگر فعال نیست.", show_alert=True)
+    poll_id, option_id = int(poll_id_s), int(option_id_s)
+    ok = await answer_poll(session, poll_id, user.id, option_id)
+    await delete_panel(callback.message)
+    if ok:
+        option = await session.get(PollOption, option_id)
+        text = f"✅ رأی شما ثبت شد.\nگزینه انتخاب‌شده: <b>{escape(option.label if option else '—')}</b>"
+    else:
+        text = "⚠️ این نظرسنجی دیگر فعال نیست و رأی ثبت نشد."
+    await render_panel(callback.message, text, education_result_kb())
+    await callback.answer()
 
 
 @router.callback_query(F.data == "p2:cancel")
-async def phase2_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+async def phase2_cancel(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await state.clear()
     await delete_panel(callback.message)
-    await callback.answer("عملیات لغو شد.")
+    user = await get_user(session, callback.from_user)
+    await callback.message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
+    await callback.answer()
 
 
 @router.message(F.text.in_({"🆘 پشتیبانی", "پشتیبانی"}))
@@ -283,6 +312,8 @@ async def review_open(callback: CallbackQuery, state: FSMContext, session: Async
 async def review_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         await state.clear()
+        user = await get_user(session, message.from_user)
+        await message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
         return
     user = await get_user(session, message.from_user)
     data = await state.get_data()
@@ -333,22 +364,35 @@ async def evaluation_kind(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(EvaluationForm.data)
     await delete_panel(callback.message)
     if kind == "grade":
-        text = "قالب ثبت نمره:\nشناسه دانش‌آموز | شناسه درس | نمره | سقف نمره | بازخورد اختیاری"
+        text = (
+            "📊 <b>ثبت نمره</b>\n\n"
+            "قالب: شناسه دانش‌آموز | شناسه درس | نمره | سقف نمره | بازخورد اختیاری\n"
+            "نمونه: <code>۱۲۳ | ۴۵ | ۱۸ | ۲۰ | عملکرد خوب</code>\n\n"
+            "برای انصراف، «❌ انصراف» را بزنید."
+        )
     elif kind == "poll":
         await state.set_state(PollCreateForm.question)
         await callback.message.answer("سؤال نظرسنجی را ارسال کنید:", reply_markup=cancel_kb())
         await callback.answer()
         return
     else:
-        text = "قالب حضور‌وغیاب:\nشناسه دانش‌آموز | وضعیت (present/absent/late/excused) | توضیح اختیاری"
+        text = (
+            "🟢 <b>ثبت حضور‌وغیاب</b>\n\n"
+            "قالب: شناسه دانش‌آموز | وضعیت | توضیح اختیاری\n"
+            "وضعیت مجاز: <code>present</code>، <code>absent</code>، <code>late</code>، <code>excused</code>\n"
+            "نمونه: <code>۱۲۳ | present | حضور کامل</code>\n\n"
+            "برای انصراف، «❌ انصراف» را بزنید."
+        )
     await callback.message.answer(text, reply_markup=cancel_kb())
     await callback.answer()
 
 
 @router.message(PollCreateForm.question, F.text)
-async def poll_question(message: Message, state: FSMContext) -> None:
+async def poll_question(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         await state.clear()
+        user = await get_user(session, message.from_user)
+        await message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
         return
     await state.update_data(poll_question=message.text.strip()[:500])
     await state.set_state(PollCreateForm.options)
@@ -359,6 +403,8 @@ async def poll_question(message: Message, state: FSMContext) -> None:
 async def poll_options_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         await state.clear()
+        user = await get_user(session, message.from_user)
+        await message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
         return
     options = [value.strip()[:180] for value in message.text.split("|") if value.strip()]
     data = await state.get_data()
@@ -380,6 +426,8 @@ async def poll_options_submit(message: Message, state: FSMContext, session: Asyn
 async def evaluation_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
         await state.clear()
+        user = await get_user(session, message.from_user)
+        await message.answer("عملیات لغو شد.", reply_markup=await menu_for(session, user))
         return
     data = await state.get_data()
     user = await get_user(session, message.from_user)

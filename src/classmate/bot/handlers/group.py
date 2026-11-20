@@ -106,7 +106,7 @@ async def cb_group_view(callback: CallbackQuery, session: AsyncSession) -> None:
     class_id = int(parts[3])
     user = await get_user(session, callback.from_user, private=False)
     await delete_panel(callback.message)
-    await run_view(callback.message, session, action, class_id, user)
+    await run_view(callback.message, session, action, class_id, user, close_reply_keyboard=False)
     await callback.answer()
 
 

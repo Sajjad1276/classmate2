@@ -14,6 +14,7 @@ from classmate.bot.keyboards import (
     admin_menu,
     class_picker,
     education_menu,
+    education_result_kb,
     main_menu,
     management_menu,
     manage_class_menu,
@@ -171,19 +172,32 @@ async def ask_class(message: Message, session: AsyncSession, action: str, user: 
     await render_panel(message, "🏫 کلاس موردنظر را انتخاب کنید:", class_picker(classes, action=action))
 
 
+async def _education_result(target: Message, text: str, close_reply_keyboard: bool = True) -> None:
+    if close_reply_keyboard:
+        await render_panel(target, text, education_result_kb())
+    else:
+        await target.answer(text, reply_markup=education_result_kb())
+
+
 async def run_view(
-    target: Message, session: AsyncSession, action: str, class_id: int, user: User
+    target: Message,
+    session: AsyncSession,
+    action: str,
+    class_id: int,
+    user: User,
+    *,
+    close_reply_keyboard: bool = True,
 ) -> None:
     ctx = await get_class_with_school(session, class_id)
     if ctx is None:
-        await target.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
+        await _education_result(target, "کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.", close_reply_keyboard)
         return
     class_group, _, school = ctx
 
     if action == "homework":
         rows = await list_homework(session, class_id)
         if not rows:
-            await target.answer(f"📚 <b>{escape(class_group.name)}</b>\nتکلیف تأییدشده‌ای نیست.")
+            await _education_result(target, f"📚 <b>{escape(class_group.name)}</b>\nتکلیف تأییدشده‌ای نیست.", close_reply_keyboard)
             return
         lines = [f"📚 <b>تکالیف — {escape(class_group.name)}</b>"]
         for hw, subj in rows:
@@ -191,12 +205,12 @@ async def run_view(
                 f"\n• <b>{escape(subj.name)}</b> — {escape(hw.title)}\n"
                 f"  {escape(hw.description)}\n  موعد: {jalali_date(hw.due_on)}"
             )
-        await target.answer("\n".join(lines))
+        await _education_result(target, "\n".join(lines), close_reply_keyboard)
 
     elif action == "exams":
         rows = await list_exams(session, class_id)
         if not rows:
-            await target.answer(f"📝 <b>{escape(class_group.name)}</b>\nامتحان آینده‌ای نیست.")
+            await _education_result(target, f"📝 <b>{escape(class_group.name)}</b>\nامتحان آینده‌ای نیست.", close_reply_keyboard)
             return
         lines = [f"📝 <b>امتحانات — {escape(class_group.name)}</b>"]
         for exam, subj in rows:
@@ -205,20 +219,22 @@ async def run_view(
                 f"  {escape(exam.scope or '—')}\n"
                 f"  {jalali_datetime(exam.scheduled_at, school.timezone)}"
             )
-        await target.answer("\n".join(lines))
+        await _education_result(target, "\n".join(lines), close_reply_keyboard)
 
     elif action == "today":
         reports = await list_reports(session, class_id, date.today())
         if not reports:
-            await target.answer(
+            await _education_result(
+                target,
                 f"📋 <b>{escape(class_group.name)}</b>\n"
-                f"گزارشی برای امروز ({jalali_date(date.today())}) نیست."
+                f"گزارشی برای امروز ({jalali_date(date.today())}) نیست.",
+                close_reply_keyboard,
             )
             return
         lines = [f"📋 <b>گزارش‌های امروز — {escape(class_group.name)}</b>"]
         for r in reports:
             lines.append(f"\n• {escape(r.title or 'گزارش')}\n{escape(r.body)}")
-        await target.answer("\n".join(lines))
+        await _education_result(target, "\n".join(lines), close_reply_keyboard)
 
     elif action == "week":
         entries = (
@@ -230,7 +246,7 @@ async def run_view(
             )
         ).all()
         if not entries:
-            await target.answer(f"📅 <b>{escape(class_group.name)}</b>\nبرنامه تنظیم نشده.")
+            await _education_result(target, f"📅 <b>{escape(class_group.name)}</b>\nبرنامه تنظیم نشده.", close_reply_keyboard)
             return
         lines = [f"📅 <b>برنامه — {escape(class_group.name)}</b>"]
         current = -1
@@ -244,21 +260,21 @@ async def run_view(
                 if entry.ends_at:
                     t += f"–{entry.ends_at.strftime('%H:%M')}"
             lines.append(f"  {entry.period}. {escape(subj.name)}{t}")
-        await target.answer("\n".join(lines))
+        await _education_result(target, "\n".join(lines), close_reply_keyboard)
 
     elif action == "pending":
         if not await can_approve(session, user, class_id):
-            await target.answer("شما اجازه مشاهده این بخش را ندارید.")
+            await _education_result(target, "شما اجازه مشاهده این بخش را ندارید.", close_reply_keyboard)
             return
         pending = await list_pending_records(session, class_id)
         if not pending:
-            await target.answer(f"🕓 <b>{escape(class_group.name)}</b>\nموردی در انتظار نیست.")
+            await _education_result(target, f"🕓 <b>{escape(class_group.name)}</b>\nموردی در انتظار نیست.", close_reply_keyboard)
             return
         lines = [f"🕓 <b>در انتظار — {escape(class_group.name)}</b>"]
         for label, rec in pending:
             title = getattr(rec, "title", None) or "—"
             lines.append(f"• {label} #{rec.id}: {escape(str(title))}")
-        await target.answer("\n".join(lines))
+        await _education_result(target, "\n".join(lines), close_reply_keyboard)
 
 
 # ── Reply buttons ───────────────────────────────────────────────────
@@ -445,6 +461,8 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
             "🏛 <b>مدیریت سامانه</b>\nعملیات موردنظر را انتخاب کنید:",
             admin_menu(),
         )
+    elif action == "education":
+        await render_panel(callback.message, "🎓 <b>بخش آموزشی</b>\nگزینه موردنظر را انتخاب کنید:", education_menu())
     else:
         from classmate.bot.handlers.phase2 import my_attendance, my_grades, polls, submit_entry
         handlers = {"submit": submit_entry, "grades": my_grades, "attendance": my_attendance, "polls": polls}
