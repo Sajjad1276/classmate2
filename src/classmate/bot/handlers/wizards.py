@@ -86,7 +86,7 @@ async def _subjects(session: AsyncSession, class_id: int) -> list[tuple[int, str
 @router.callback_query(F.data == "wiz:hw")
 async def entry_hw(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = await classes_for_user(session, user)
     if not classes:
         await callback.message.answer("برای ادامه، ابتدا باید عضو یک کلاس باشید.")
@@ -105,7 +105,7 @@ async def entry_hw(callback: CallbackQuery, state: FSMContext, session: AsyncSes
 @router.callback_query(F.data == "wiz:exam")
 async def entry_exam(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = await classes_for_user(session, user)
     if not classes:
         await callback.message.answer("برای ادامه، ابتدا عضو یک کلاس شوید.")
@@ -123,7 +123,7 @@ async def entry_exam(callback: CallbackQuery, state: FSMContext, session: AsyncS
 @router.callback_query(F.data == "wiz:report")
 async def entry_report(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = await classes_for_user(session, user)
     if not classes:
         await callback.message.answer("برای ادامه، ابتدا عضو یک کلاس شوید.")
@@ -141,8 +141,11 @@ async def entry_report(callback: CallbackQuery, state: FSMContext, session: Asyn
 @router.callback_query(F.data == "mgr:codes")
 async def entry_codes(callback: CallbackQuery, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
-    classes = await classes_for_user(session, user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    classes = [
+        row for row in await classes_for_user(session, user)
+        if await is_class_manager(session, user, row[0])
+    ]
     if not classes:
         await callback.message.answer("کلاسی برای مدیریت در دسترس نیست.")
         await callback.answer()
@@ -156,8 +159,11 @@ async def entry_codes(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data == "mgr:subject")
 async def entry_subject(callback: CallbackQuery, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
-    classes = await classes_for_user(session, user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    classes = [
+        row for row in await classes_for_user(session, user)
+        if await is_class_manager(session, user, row[0])
+    ]
     if not classes:
         await callback.message.answer("کلاسی در دسترس نیست.")
         await callback.answer()
@@ -171,8 +177,11 @@ async def entry_subject(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data == "mgr:timetable")
 async def entry_tt(callback: CallbackQuery, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
-    classes = await classes_for_user(session, user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    classes = [
+        row for row in await classes_for_user(session, user)
+        if await is_class_manager(session, user, row[0])
+    ]
     if not classes:
         await callback.message.answer("کلاسی در دسترس نیست.")
         await callback.answer()
@@ -187,7 +196,7 @@ async def entry_tt(callback: CallbackQuery, session: AsyncSession) -> None:
 async def entry_group(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     """Start official Telegram chat selection for a class manager."""
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     parts = callback.data.split(":")
     if len(parts) == 3:
         class_id = int(parts[2])
@@ -215,7 +224,11 @@ async def entry_group(callback: CallbackQuery, state: FSMContext, session: Async
 
 
 @router.callback_query(F.data == "adm:school")
-async def entry_school(callback: CallbackQuery, state: FSMContext) -> None:
+async def entry_school(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    if not user.is_platform_admin:
+        await callback.answer("دسترسی مدیر سامانه لازم است.", show_alert=True)
+        return
     await delete_panel(callback.message)
     await state.set_state(SchoolForm.name)
     await callback.message.answer("نام مدرسه را ارسال کنید:", reply_markup=cancel_kb())
@@ -225,7 +238,7 @@ async def entry_school(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "adm:class")
 async def entry_class(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user)
+    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     q = select(School).where(School.is_active.is_(True)).order_by(School.name)
     if not user.is_platform_admin:
         q = (
