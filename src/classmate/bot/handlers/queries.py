@@ -32,6 +32,8 @@ async def _resolve_class(message: Message, session: AsyncSession, arg: str | Non
     if message.from_user.id in settings.bootstrap_admin_id_set:
         user.is_platform_admin = True
 
+    if not user.is_active:
+        return None, user
     if message.chat.type in {"group", "supergroup"}:
         return await get_group_context(session, message.chat.id), user
 
