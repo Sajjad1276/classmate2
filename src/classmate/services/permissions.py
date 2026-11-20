@@ -78,6 +78,14 @@ async def user_can_access_class(session: AsyncSession, user: User, class_id: int
 async def is_school_admin(session: AsyncSession, user: User, school_id: int) -> bool:
     if not user.is_active:
         return False
+    active_school = await session.scalar(
+        select(School.id).where(
+            School.id == school_id,
+            School.is_active.is_(True),
+        )
+    )
+    if active_school is None:
+        return False
     if user.is_platform_admin:
         return True
     return (
@@ -138,7 +146,9 @@ async def is_class_manager(session: AsyncSession, user: User, class_id: int) -> 
 async def activate_student_membership(
     session: AsyncSession, class_id: int, user_id: int
 ) -> ClassMembership:
-    """Join as a student without restoring stale privileged roles."""
+    """Join an active class as a student without restoring stale privileges."""
+    if await get_class_with_school(session, class_id) is None:
+        raise ValueError("کلاس موردنظر فعال نیست یا در دسترس قرار ندارد.")
     membership = await session.scalar(
         select(ClassMembership).where(
             ClassMembership.class_id == class_id,
