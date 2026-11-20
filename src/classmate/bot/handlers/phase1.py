@@ -233,6 +233,14 @@ async def search_entry(message: Message, state: FSMContext) -> None:
 @router.message(SearchForm.query, F.text)
 async def search_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.text == "❌ انصراف":
+        await state.clear()
+        user = await get_user(
+            session, message.from_user, private=message.chat.type == "private"
+        )
+        await message.answer(
+            "جست‌وجو لغو شد.",
+            reply_markup=await menu_for(session, user),
+        )
         return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = await classes_for_user(session, user)
