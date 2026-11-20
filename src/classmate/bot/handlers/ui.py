@@ -643,9 +643,13 @@ async def cb_pick(callback: CallbackQuery, session: AsyncSession, state: FSMCont
     if action in manager_actions and not await is_class_manager(session, user, class_id):
         await callback.answer("این عملیات فقط برای مدیر کلاس مجاز است.", show_alert=True)
         return
-    if action == "pending" and not await can_approve(session, user, class_id):
-        await callback.answer("شما اجازه مشاهده موارد در انتظار را ندارید.", show_alert=True)
-        return
+    if action == "pending":
+        if callback.message is None or callback.message.chat.type != "private":
+            await callback.answer("صف بررسی فقط از پنل خصوصی ربات در دسترس است.", show_alert=True)
+            return
+        if not await can_approve(session, user, class_id):
+            await callback.answer("شما اجازه مشاهده موارد در انتظار را ندارید.", show_alert=True)
+            return
 
     # View actions
     if action in {"homework", "exams", "today", "week", "pending"}:
