@@ -55,11 +55,6 @@ from classmate.services.permissions import (
     is_school_admin,
     make_code,
     user_can_access_class,
-    get_class_with_school,
-    hash_code,
-    is_class_manager,
-    is_school_admin,
-    make_code,
 )
 from classmate.services.records import (
     add_subject,
