@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for, render_panel
 from classmate.bot.keyboards import cancel_kb, class_picker, education_result_kb
 from classmate.bot.states import EvaluationForm, PollCreateForm, ReviewSubmissionForm, SubmissionForm
-from classmate.core.enums import Role
 from classmate.db.models import Attendance, ClassMembership, ClassSubject, Grade, Homework, HomeworkSubmission, Poll, PollOption, Subject, User
 from classmate.domain.dates import jalali_date
 from classmate.services.permissions import get_class_with_school, is_class_manager, user_can_access_class
