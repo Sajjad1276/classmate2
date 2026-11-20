@@ -56,6 +56,14 @@ async def render_panel(message: Message, text: str, markup) -> None:
     await message.answer("از گزینه‌های پنل بالا انتخاب کنید.", reply_markup=ReplyKeyboardRemove())
 
 
+async def delete_panel(message: Message) -> None:
+    """Delete the current inline panel before opening its next screen."""
+    try:
+        await message.delete()
+    except Exception:
+        logger.debug("Could not delete previous inline panel", exc_info=True)
+
+
 async def get_user(session: AsyncSession, tg, private: bool = True) -> User:
     settings = get_settings()
     user = await ensure_user(
@@ -407,10 +415,7 @@ async def btn_help(message: Message, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("menu:"))
 async def cb_category(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     action = callback.data.split(":", 1)[1]
-    try:
-        await callback.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        logger.debug("Could not remove inline markup during navigation", exc_info=True)
+    await delete_panel(callback.message)
     user = await get_user(session, callback.from_user)
     if action in {"homework", "exams", "week", "today", "content", "reviews", "evaluation"}:
         mapped = {"reviews": "review_submissions", "content": "content"}.get(action, action)
@@ -429,14 +434,16 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
         else:
             await ask_class(callback.message, session, mapped, user)
     elif action == "class_manage":
-        await callback.message.edit_text(
+        await render_panel(
+            callback.message,
             "⚙️ <b>مدیریت کلاس</b>\nعملیات موردنظر را انتخاب کنید:",
-            reply_markup=manage_class_menu(),
+            manage_class_menu(),
         )
     elif action == "admin":
-        await callback.message.edit_text(
+        await render_panel(
+            callback.message,
             "🏛 <b>مدیریت سامانه</b>\nعملیات موردنظر را انتخاب کنید:",
-            reply_markup=admin_menu(),
+            admin_menu(),
         )
     else:
         from classmate.bot.handlers.phase2 import my_attendance, my_grades, polls, submit_entry
@@ -450,10 +457,7 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
 @router.callback_query(F.data == "ui:home")
 async def cb_home(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await state.clear()
-    try:
-        await callback.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        logger.debug("Could not remove inline markup during navigation", exc_info=True)
+    await delete_panel(callback.message)
     user = await get_user(session, callback.from_user)
     await callback.message.answer(
         "🏠 <b>منوی اصلی</b>\n\n"
@@ -468,6 +472,7 @@ async def cb_pick(callback: CallbackQuery, session: AsyncSession, state: FSMCont
     _, action, id_s = callback.data.split(":", 2)
     class_id = int(id_s)
     user = await get_user(session, callback.from_user)
+    await delete_panel(callback.message)
 
     # View actions
     if action in {"homework", "exams", "today", "week", "pending"}:

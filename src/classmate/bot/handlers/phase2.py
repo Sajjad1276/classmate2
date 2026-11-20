@@ -10,7 +10,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.bot.handlers.ui import classes_for_user, get_user, menu_for, render_panel
+from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for, render_panel
 from classmate.bot.keyboards import cancel_kb, class_picker
 from classmate.bot.states import EvaluationForm, PollCreateForm, ReviewSubmissionForm, SubmissionForm
 from classmate.core.enums import Role
@@ -78,6 +78,7 @@ async def submit_homework(callback: CallbackQuery, state: FSMContext, session: A
     if homework is None or not await user_can_access_class(session, user, homework.class_id):
         await callback.answer("این تکلیف برای شما در دسترس نیست.", show_alert=True)
         return
+    await delete_panel(callback.message)
     await state.update_data(homework_id=homework_id)
     await state.set_state(SubmissionForm.answer)
     await callback.message.answer("پاسخ خود را ارسال کنید؛ متن، فایل یا تصویر قابل قبول است.", reply_markup=cancel_kb())
@@ -176,6 +177,7 @@ async def poll_open(callback: CallbackQuery, session: AsyncSession) -> None:
     buttons = [[color_button("🟢", option.label, f"p2:vote:{poll_id}:{option.id}")] for option in options]
     buttons.append([color_button("🔴", "بستن", "p2:cancel")])
     poll = await session.get(Poll, poll_id)
+    await delete_panel(callback.message)
     await callback.message.answer(f"🗳 <b>{escape(poll.question if poll else 'نظرسنجی')}</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     await callback.answer()
 
@@ -191,6 +193,7 @@ async def poll_vote(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data == "p2:cancel")
 async def phase2_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
+    await delete_panel(callback.message)
     await callback.answer("عملیات لغو شد.")
 
 
@@ -269,6 +272,7 @@ async def review_open(callback: CallbackQuery, state: FSMContext, session: Async
         await callback.answer("دسترسی بررسی این پاسخ را ندارید.", show_alert=True)
         return
     content = submission.text or (f"فایل {submission.file_type} دریافت شده است." if submission.file_id else "بدون محتوای متنی")
+    await delete_panel(callback.message)
     await callback.message.answer(f"📝 <b>{escape(homework.title)}</b>\n\n{escape(content)}\n\nبازخورد مدیر را ارسال کنید:", reply_markup=cancel_kb())
     await state.update_data(review_submission_id=submission.id)
     await state.set_state(ReviewSubmissionForm.feedback)
@@ -327,6 +331,7 @@ async def evaluation_kind(callback: CallbackQuery, state: FSMContext) -> None:
     kind = callback.data.split(":")[2]
     await state.update_data(evaluation_kind=kind)
     await state.set_state(EvaluationForm.data)
+    await delete_panel(callback.message)
     if kind == "grade":
         text = "قالب ثبت نمره:\nشناسه دانش‌آموز | شناسه درس | نمره | سقف نمره | بازخورد اختیاری"
     elif kind == "poll":

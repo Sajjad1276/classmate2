@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.bot.handlers.ui import classes_for_user, get_user, menu_for, render_panel
+from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for, render_panel
 from classmate.bot.keyboards import cancel_kb, class_picker
 from classmate.bot.states import AnnouncementForm, EditRecordForm, SearchForm
 from classmate.domain.dates import jalali_date, jalali_datetime, persian_weekday
@@ -82,6 +82,7 @@ async def dashboard(message: Message, session: AsyncSession) -> None:
 @router.callback_query(F.data == "p1:dashboard")
 async def dashboard_callback(callback: CallbackQuery, session: AsyncSession) -> None:
     user = await get_user(session, callback.from_user)
+    await delete_panel(callback.message)
     await _render_dashboard(callback.message, session, user)
     await callback.answer("داشبورد به‌روزرسانی شد.")
 
@@ -90,6 +91,7 @@ async def dashboard_callback(callback: CallbackQuery, session: AsyncSession) -> 
 async def calendar_entry(callback: CallbackQuery, session: AsyncSession) -> None:
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
+    await delete_panel(callback.message)
     if not classes:
         await callback.message.answer("هنوز عضو کلاسی نیستید.")
     elif len(classes) == 1:
@@ -322,6 +324,7 @@ async def edit_second(message: Message, state: FSMContext, session: AsyncSession
 
 @router.callback_query(F.data == "p1:announcements")
 async def announcements_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    await delete_panel(callback.message)
     await announcements(callback.message, session)
     await callback.answer()
 
@@ -333,6 +336,7 @@ async def new_announcement(callback: CallbackQuery, state: FSMContext, session: 
     if not classes:
         await callback.answer("دسترسی ایجاد اطلاعیه ندارید.", show_alert=True)
         return
+    await delete_panel(callback.message)
     await render_panel(
         callback.message,
         "🏫 کلاس اطلاعیه را انتخاب کنید:",

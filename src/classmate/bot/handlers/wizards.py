@@ -19,7 +19,7 @@ from classmate.bot.keyboards import (
     skip_or_cancel_kb,
     subject_picker,
 )
-from classmate.bot.handlers.ui import classes_for_user, get_user, menu_for, role_flags
+from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for, role_flags
 from classmate.bot.states import (
     ClassForm,
     ConnectForm,
@@ -82,6 +82,7 @@ async def _subjects(session: AsyncSession, class_id: int) -> list[tuple[int, str
 
 @router.callback_query(F.data == "wiz:hw")
 async def entry_hw(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    await delete_panel(callback.message)
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
@@ -100,6 +101,7 @@ async def entry_hw(callback: CallbackQuery, state: FSMContext, session: AsyncSes
 
 @router.callback_query(F.data == "wiz:exam")
 async def entry_exam(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    await delete_panel(callback.message)
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
@@ -117,6 +119,7 @@ async def entry_exam(callback: CallbackQuery, state: FSMContext, session: AsyncS
 
 @router.callback_query(F.data == "wiz:report")
 async def entry_report(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    await delete_panel(callback.message)
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
@@ -134,6 +137,7 @@ async def entry_report(callback: CallbackQuery, state: FSMContext, session: Asyn
 
 @router.callback_query(F.data == "mgr:codes")
 async def entry_codes(callback: CallbackQuery, session: AsyncSession) -> None:
+    await delete_panel(callback.message)
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
@@ -148,6 +152,7 @@ async def entry_codes(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "mgr:subject")
 async def entry_subject(callback: CallbackQuery, session: AsyncSession) -> None:
+    await delete_panel(callback.message)
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
@@ -162,6 +167,7 @@ async def entry_subject(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "mgr:timetable")
 async def entry_tt(callback: CallbackQuery, session: AsyncSession) -> None:
+    await delete_panel(callback.message)
     user = await get_user(session, callback.from_user)
     classes = await classes_for_user(session, user)
     if not classes:
@@ -176,6 +182,7 @@ async def entry_tt(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "adm:school")
 async def entry_school(callback: CallbackQuery, state: FSMContext) -> None:
+    await delete_panel(callback.message)
     await state.set_state(SchoolForm.name)
     await callback.message.answer("نام مدرسه را ارسال کنید:", reply_markup=cancel_kb())
     await callback.answer()
@@ -183,6 +190,7 @@ async def entry_school(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "adm:class")
 async def entry_class(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    await delete_panel(callback.message)
     user = await get_user(session, callback.from_user)
     q = select(School).where(School.is_active.is_(True)).order_by(School.name)
     if not user.is_platform_admin:
@@ -279,6 +287,7 @@ async def issue_codes(message, session, user, class_id: int) -> None:
 
 @router.callback_query(HomeworkForm.subject, F.data.startswith("subj:"))
 async def hw_subject(callback: CallbackQuery, state: FSMContext) -> None:
+    await delete_panel(callback.message)
     sid = int(callback.data.split(":")[1])
     await state.update_data(subject_id=sid)
     await state.set_state(HomeworkForm.title)
@@ -366,6 +375,7 @@ async def hw_due(message: Message, state: FSMContext, session: AsyncSession) -> 
 
 @router.callback_query(ExamForm.subject, F.data.startswith("subj:"))
 async def exam_subject(callback: CallbackQuery, state: FSMContext) -> None:
+    await delete_panel(callback.message)
     await state.update_data(subject_id=int(callback.data.split(":")[1]))
     await state.set_state(ExamForm.title)
     await callback.message.answer("عنوان امتحان را ارسال کنید:", reply_markup=cancel_kb())
@@ -582,6 +592,7 @@ async def school_year(message: Message, state: FSMContext, session: AsyncSession
 
 @router.callback_query(ClassForm.school_id, F.data.startswith("sch:"))
 async def class_school(callback: CallbackQuery, state: FSMContext) -> None:
+    await delete_panel(callback.message)
     await state.update_data(school_id=int(callback.data.split(":")[1]))
     await state.set_state(ClassForm.grade)
     await callback.message.answer("پایه (مثلاً دهم):", reply_markup=cancel_kb())
@@ -676,6 +687,7 @@ async def subject_name(message: Message, state: FSMContext, session: AsyncSessio
 
 @router.callback_query(TimetableForm.day, F.data.startswith("day:"))
 async def tt_day(callback: CallbackQuery, state: FSMContext) -> None:
+    await delete_panel(callback.message)
     await state.update_data(weekday=int(callback.data.split(":")[1]))
     await state.set_state(TimetableForm.period)
     await callback.message.answer("شماره زنگ (۱، ۲، ۳، …):", reply_markup=cancel_kb())
@@ -704,6 +716,7 @@ async def tt_period(message: Message, state: FSMContext, session: AsyncSession) 
 
 @router.callback_query(TimetableForm.subject, F.data.startswith("subj:"))
 async def tt_subject(callback: CallbackQuery, state: FSMContext) -> None:
+    await delete_panel(callback.message)
     await state.update_data(subject_id=int(callback.data.split(":")[1]))
     await state.set_state(TimetableForm.time_range)
     await callback.message.answer(
