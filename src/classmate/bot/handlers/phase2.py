@@ -19,7 +19,8 @@ from classmate.domain.dates import jalali_date
 from classmate.services.outbox import enqueue_telegram_message
 from classmate.services.permissions import get_class_with_school, is_class_manager, user_can_access_class
 from classmate.services.phase2 import (
-    active_polls,
+
+from classmate.services.phase2 import validate_grade_values    active_polls,
     answer_poll,
     approved_homeworks_for_student,
     poll_options,
@@ -540,8 +541,7 @@ async def evaluation_submit(message: Message, state: FSMContext, session: AsyncS
             if len(parts) < 4:
                 raise ValueError("برای ثبت نمره حداقل چهار بخش لازم است.")
             subject_id, score, max_score = int(parts[1]), float(parts[2]), float(parts[3])
-            if score < 0 or max_score <= 0 or score > max_score:
-                raise ValueError("مقدار نمره معتبر نیست.")
+            validate_grade_values(score, max_score)
             linked_subject = await session.scalar(select(ClassSubject.id).where(
                 ClassSubject.class_id == class_id,
                 ClassSubject.subject_id == subject_id,
