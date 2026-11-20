@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.core.enums import OutboxStatus
+from classmate.core.enums import OutboxStatus, RecordStatus
 from classmate.db.models import TelegramOutbox
 
 TargetType = Literal["group", "private"]
@@ -24,6 +24,9 @@ async def enqueue_telegram_message(
     text: str,
     idempotency_key: str,
     class_id: int | None = None,
+    entity_type: str | None = None,
+    entity_id: int | None = None,
+    expected_record_status: str | None = None,
     recipient_user_id: int | None = None,
     parse_mode: str | None = "HTML",
     action_type: str | None = None,
@@ -61,6 +64,16 @@ async def enqueue_telegram_message(
         raise ValueError("Unsupported outbox action type.")
     if action_type is not None and target_type != "group":
         raise ValueError("Approval actions are only supported in class groups.")
+    entity_fields = (entity_type, entity_id, expected_record_status)
+    if any(value is not None for value in entity_fields) and not all(
+        value is not None for value in entity_fields
+    ):
+        raise ValueError("Outbox record scope requires entity type, id and expected status.")
+    if entity_type is not None and entity_type not in {"homework", "exam", "report"}:
+        raise ValueError("Unsupported outbox record entity type.")
+    allowed_statuses = {status.value for status in RecordStatus}
+    if expected_record_status is not None and expected_record_status not in allowed_statuses:
+        raise ValueError("Unsupported expected record status.")
     if scheduled_at is not None and scheduled_at.tzinfo is None:
         raise ValueError("Outbox scheduled_at must be timezone-aware.")
 
@@ -69,6 +82,9 @@ async def enqueue_telegram_message(
         "target_type": target_type,
         "target_chat_id": target_chat_id,
         "class_id": class_id,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "expected_record_status": expected_record_status,
         "recipient_user_id": recipient_user_id,
         "text": normalized_text,
         "parse_mode": parse_mode,
@@ -112,6 +128,9 @@ async def enqueue_telegram_message(
         "target_type",
         "target_chat_id",
         "class_id",
+        "entity_type",
+        "entity_id",
+        "expected_record_status",
         "recipient_user_id",
         "text",
         "parse_mode",
