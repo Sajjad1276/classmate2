@@ -55,7 +55,10 @@ class School(TimestampMixin, Base):
 
 class SchoolMembership(TimestampMixin, Base):
     __tablename__ = "school_memberships"
-    __table_args__ = (UniqueConstraint("school_id", "user_id", name="uq_school_user"),)
+    __table_args__ = (
+        UniqueConstraint("school_id", "user_id", name="uq_school_user"),
+        Index("ix_school_memberships_user_active_school", "user_id", "is_active", "school_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     school_id: Mapped[int] = mapped_column(ForeignKey("schools.id", ondelete="CASCADE"), index=True)
@@ -99,7 +102,10 @@ class ClassGroup(TimestampMixin, Base):
 
 class ClassMembership(TimestampMixin, Base):
     __tablename__ = "class_memberships"
-    __table_args__ = (UniqueConstraint("class_id", "user_id", name="uq_class_user"),)
+    __table_args__ = (
+        UniqueConstraint("class_id", "user_id", name="uq_class_user"),
+        Index("ix_class_memberships_user_active_class", "user_id", "is_active", "class_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
@@ -274,6 +280,7 @@ class Attendance(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("class_id", "student_id", "attendance_date", name="uq_attendance_student_day"),
         Index("ix_attendance_class_date", "class_id", "attendance_date"),
+        Index("ix_attendance_student_date", "student_id", "attendance_date"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -308,7 +315,10 @@ class PollOption(Base):
 
 class PollResponse(Base):
     __tablename__ = "poll_responses"
-    __table_args__ = (UniqueConstraint("poll_id", "user_id", name="uq_poll_user_response"),)
+    __table_args__ = (
+        UniqueConstraint("poll_id", "user_id", name="uq_poll_user_response"),
+        Index("ix_poll_response_user_poll", "user_id", "poll_id"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     poll_id: Mapped[int] = mapped_column(ForeignKey("polls.id", ondelete="CASCADE"), index=True)
     option_id: Mapped[int | None] = mapped_column(ForeignKey("poll_options.id", ondelete="CASCADE"))
@@ -364,6 +374,7 @@ class Announcement(TimestampMixin, Base):
     __tablename__ = "announcements"
     __table_args__ = (
         Index("ix_announcement_class_published", "class_id", "published_at"),
+        Index("ix_announcement_class_active_published", "class_id", "is_active", "published_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -383,6 +394,7 @@ class ReminderJob(Base):
     __table_args__ = (
         UniqueConstraint("dedupe_key", name="uq_reminder_dedupe_key"),
         Index("ix_reminder_due_status", "status", "scheduled_at"),
+        Index("ix_reminder_target_status_scheduled", "target_id", "status", "scheduled_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

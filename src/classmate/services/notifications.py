@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.core.enums import EntityType, ReminderStatus
 from classmate.db.models import ClassGroup, Exam, Homework, NotificationPreference, ReminderJob, User
 from sqlalchemy import select
+from sqlalchemy.orm import aliased
 
 
 async def schedule_approved_record_reminders(
@@ -58,26 +59,18 @@ async def schedule_approved_record_reminders(
                 )
             )
 
-        # Private reminders for members who started the bot and have prefs enabled
-        members = (
-            await session.execute(
-                select(User)
-                .join(NotificationPreference, NotificationPreference.user_id == User.id)
-                .where(
-                    NotificationPreference.class_id == class_group.id,
-                    User.private_chat_started.is_(True),
-                    User.is_active.is_(True),
-                )
-            )
-        ).scalars().all()
-
-        # Also include active class members without explicit preference (default on)
+        # One indexed query; missing preferences mean notifications are enabled by default.
         from classmate.db.models import ClassMembership
 
-        all_members = (
+        pref = aliased(NotificationPreference)
+        members = (
             await session.execute(
-                select(User)
+                select(User, pref)
                 .join(ClassMembership, ClassMembership.user_id == User.id)
+                .outerjoin(
+                    pref,
+                    (pref.user_id == User.id) & (pref.class_id == class_group.id),
+                )
                 .where(
                     ClassMembership.class_id == class_group.id,
                     ClassMembership.is_active.is_(True),
@@ -85,24 +78,20 @@ async def schedule_approved_record_reminders(
                     User.is_active.is_(True),
                 )
             )
-        ).scalars().all()
+        ).all()
 
         seen: set[int] = set()
-        for user in all_members:
+        for user, preference in members:
             if user.telegram_id in seen:
                 continue
             seen.add(user.telegram_id)
-
-            pref = await session.scalar(
-                select(NotificationPreference).where(
-                    NotificationPreference.user_id == user.id,
-                    NotificationPreference.class_id == class_group.id,
+            if preference is not None:
+                enabled = (
+                    preference.homework_enabled
+                    if entity_type == EntityType.HOMEWORK.value
+                    else preference.exams_enabled
                 )
-            )
-            if pref is not None:
-                if entity_type == EntityType.HOMEWORK.value and not pref.homework_enabled:
-                    continue
-                if entity_type == EntityType.EXAM.value and not pref.exams_enabled:
+                if not enabled:
                     continue
 
             dedupe = f"{entity_type}:{record.id}:private:{user.telegram_id}:{int(scheduled_at.timestamp())}"

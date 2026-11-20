@@ -39,6 +39,23 @@ from classmate.services.users import ensure_user
 router = Router(name="ui")
 
 WEEKDAYS = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
+_ROLE_CACHE: dict[int, tuple[float, tuple[bool, bool, bool]]] = {}
+_CLASS_CACHE: dict[int, tuple[float, list[tuple[int, str, str]]]] = {}
+
+
+async def hide_reply_keyboard(message: Message) -> None:
+    """Remove the persistent keyboard without leaving a visible status message."""
+    transient = await message.answer("\u2063", reply_markup=ReplyKeyboardRemove())
+    try:
+        await transient.delete()
+    except Exception:
+        pass
+
+
+async def render_panel(message: Message, text: str, markup) -> None:
+    """Close the home keyboard and show one useful panel message."""
+    await hide_reply_keyboard(message)
+    await message.answer(text, reply_markup=markup)
 
 
 async def get_user(session: AsyncSession, tg, private: bool = True) -> User:
@@ -56,8 +73,15 @@ async def get_user(session: AsyncSession, tg, private: bool = True) -> User:
 
 
 async def role_flags(session: AsyncSession, user: User) -> tuple[bool, bool, bool]:
+    import time
+
+    cached = _ROLE_CACHE.get(user.id)
+    if cached and cached[0] > time.monotonic():
+        return cached[1]
     if user.is_platform_admin:
-        return True, True, True
+        result = (True, True, True)
+        _ROLE_CACHE[user.id] = (time.monotonic() + 60, result)
+        return result
     school_admin = (
         await session.scalar(
             select(SchoolMembership.id).where(
@@ -79,10 +103,17 @@ async def role_flags(session: AsyncSession, user: User) -> tuple[bool, bool, boo
     )
     manager = Role.CLASS_MANAGER in roles or school_admin
     approver = school_admin or manager or Role.TRUSTED_APPROVER in roles
-    return school_admin, manager, approver
+    result = (school_admin, manager, approver)
+    _ROLE_CACHE[user.id] = (time.monotonic() + 60, result)
+    return result
 
 
 async def classes_for_user(session: AsyncSession, user: User) -> list[tuple[int, str, str]]:
+    import time
+
+    cached = _CLASS_CACHE.get(user.id)
+    if cached and cached[0] > time.monotonic():
+        return cached[1]
     query = (
         select(ClassGroup, School)
         .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
@@ -111,7 +142,9 @@ async def classes_for_user(session: AsyncSession, user: User) -> list[tuple[int,
         .distinct()
         .order_by(ClassGroup.name)
     )
-    return [(c.id, c.name, s.name) for c, s in (await session.execute(query)).all()]
+    result = [(c.id, c.name, s.name) for c, s in (await session.execute(query)).all()]
+    _CLASS_CACHE[user.id] = (time.monotonic() + 30, result)
+    return result
 
 
 async def menu_for(session: AsyncSession, user: User):
@@ -129,7 +162,7 @@ async def ask_class(message: Message, session: AsyncSession, action: str, user: 
     if len(classes) == 1:
         await run_view(message, session, action, classes[0][0], user)
         return
-    await message.answer("پنل قبلی بسته شد.", reply_markup=ReplyKeyboardRemove())
+    await hide_reply_keyboard(message)
     await message.answer("🏫 کلاس موردنظر را انتخاب کنید:", reply_markup=class_picker(classes, action=action))
 
 
@@ -292,15 +325,14 @@ async def btn_pending(message: Message, session: AsyncSession) -> None:
 async def btn_education(message: Message) -> None:
     if message.chat.type != "private":
         return
-    await message.answer("پنل قبلی بسته شد.", reply_markup=ReplyKeyboardRemove())
-    await message.answer("🎓 <b>بخش آموزشی</b>\nگزینه موردنظر را انتخاب کنید:", reply_markup=education_menu())
+    await render_panel(message, "🎓 <b>بخش آموزشی</b>\nگزینه موردنظر را انتخاب کنید:", education_menu())
 
 
 @router.message(F.text.in_({"➕ ثبت اطلاعات", "ثبت جدید"}))
 async def btn_new(message: Message) -> None:
     if message.chat.type != "private":
         return
-    await message.answer("پنل قبلی بسته شد.", reply_markup=ReplyKeyboardRemove())
+    await hide_reply_keyboard(message)
     await message.answer(
         "📝 <b>ثبت اطلاعات جدید</b>\n\n"
         "نوع اطلاعاتی را که می‌خواهید ثبت کنید انتخاب کنید:",
@@ -312,7 +344,7 @@ async def btn_new(message: Message) -> None:
 async def btn_manage(message: Message) -> None:
     if message.chat.type != "private":
         return
-    await message.answer("پنل قبلی بسته شد.", reply_markup=ReplyKeyboardRemove())
+    await hide_reply_keyboard(message)
     await message.answer(
         "⚙️ <b>مدیریت کلاس</b>\n\n"
         "عملیات موردنظر را انتخاب کنید:",
@@ -401,9 +433,15 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
         else:
             await ask_class(callback.message, session, mapped, user)
     elif action == "class_manage":
-        await callback.message.answer("⚙️ <b>مدیریت کلاس</b>\nعملیات موردنظر را انتخاب کنید:", reply_markup=manage_class_menu())
+        await callback.message.edit_text(
+            "⚙️ <b>مدیریت کلاس</b>\nعملیات موردنظر را انتخاب کنید:",
+            reply_markup=manage_class_menu(),
+        )
     elif action == "admin":
-        await callback.message.answer("🏛 <b>مدیریت سامانه</b>\nعملیات موردنظر را انتخاب کنید:", reply_markup=admin_menu())
+        await callback.message.edit_text(
+            "🏛 <b>مدیریت سامانه</b>\nعملیات موردنظر را انتخاب کنید:",
+            reply_markup=admin_menu(),
+        )
     else:
         from classmate.bot.handlers.phase2 import my_attendance, my_grades, polls, submit_entry
         handlers = {"submit": submit_entry, "grades": my_grades, "attendance": my_attendance, "polls": polls}
