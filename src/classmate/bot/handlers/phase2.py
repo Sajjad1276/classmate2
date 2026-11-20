@@ -25,6 +25,7 @@ from classmate.services.phase2 import (
     approved_homeworks_for_student,
     poll_options,
     poll_result,
+    save_attendance,
     save_submission,
     student_attendance,
     student_grades,
@@ -546,13 +547,15 @@ async def evaluation_submit(message: Message, state: FSMContext, session: AsyncS
             if class_context is None:
                 raise ValueError("کلاس انتخاب‌شده در دسترس نیست.")
             local_today = datetime.now(ZoneInfo(class_context[2].timezone)).date()
-            existing = await session.scalar(select(Attendance).where(
-                Attendance.class_id == class_id, Attendance.student_id == student_id,
-                Attendance.attendance_date == local_today))
-            if existing:
-                existing.status, existing.note, existing.marked_by = parts[1], " | ".join(parts[2:]) or None, user.id
-            else:
-                session.add(Attendance(class_id=class_id, student_id=student_id, attendance_date=local_today, status=parts[1], note=" | ".join(parts[2:]) or None, marked_by=user.id))
+            await save_attendance(
+                session,
+                class_id=class_id,
+                student_id=student_id,
+                attendance_date=local_today,
+                status=parts[1],
+                note=" | ".join(parts[2:]) or None,
+                marked_by=user.id,
+            )
             result = "حضور‌وغیاب امروز ثبت شد."
         else:
             if len(parts) < 4:
