@@ -50,11 +50,17 @@ async def render_panel(message: Message, text: str, markup) -> None:
     """Send an actionable inline panel and close the old Reply Keyboard.
 
     Editing a freshly sent message is not guaranteed by every Telegram client or
-    proxy.  Sending the markup with the original request prevents a panel from
-    appearing as plain text with no actionable options.
+    proxy. Sending the markup with the original request prevents a panel from
+    appearing as plain text with no actionable options. The keyboard-removal
+    update is sent as an invisible message and deleted immediately so it does
+    not add clutter to the chat.
     """
     await message.answer(text, reply_markup=markup)
-    await message.answer("از گزینه‌های پنل بالا انتخاب کنید.", reply_markup=ReplyKeyboardRemove())
+    cleanup_message = await message.answer("\u2063", reply_markup=ReplyKeyboardRemove())
+    try:
+        await cleanup_message.delete()
+    except Exception:
+        logger.debug("Could not delete invisible keyboard cleanup message", exc_info=True)
 
 
 async def delete_panel(message: Message) -> None:
