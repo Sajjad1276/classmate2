@@ -68,6 +68,17 @@ from classmate.services.records import (
 router = Router(name="wizards")
 logger = logging.getLogger(__name__)
 
+
+async def _require_private_callback(callback: CallbackQuery) -> bool:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer(
+            "این عملیات فقط از گفت‌وگوی خصوصی ربات در دسترس است.",
+            show_alert=True,
+        )
+        return False
+    return True
+
+
 WEEK_NAMES = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
 
 
@@ -101,11 +112,16 @@ async def _subjects(session: AsyncSession, class_id: int) -> list[tuple[int, str
 
 @router.callback_query(F.data == "wiz:hw")
 async def entry_hw(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
-    classes = await classes_for_user(session, user)
+    user = await get_user(session, callback.from_user, private=True)
+    classes = [
+        row for row in await classes_for_user(session, user)
+        if await is_class_manager(session, user, row[0])
+    ]
     if not classes:
-        await callback.message.answer("برای ادامه، ابتدا باید عضو یک کلاس باشید.")
+        await callback.message.answer("برای ثبت تکلیف از این بخش، باید مدیر یک کلاس فعال باشید.")
         await callback.answer()
         return
     if len(classes) == 1:
@@ -120,11 +136,16 @@ async def entry_hw(callback: CallbackQuery, state: FSMContext, session: AsyncSes
 
 @router.callback_query(F.data == "wiz:exam")
 async def entry_exam(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
-    classes = await classes_for_user(session, user)
+    user = await get_user(session, callback.from_user, private=True)
+    classes = [
+        row for row in await classes_for_user(session, user)
+        if await is_class_manager(session, user, row[0])
+    ]
     if not classes:
-        await callback.message.answer("برای ادامه، ابتدا عضو یک کلاس شوید.")
+        await callback.message.answer("برای ثبت امتحان از این بخش، باید مدیر یک کلاس فعال باشید.")
         await callback.answer()
         return
     if len(classes) == 1:
@@ -138,8 +159,10 @@ async def entry_exam(callback: CallbackQuery, state: FSMContext, session: AsyncS
 
 @router.callback_query(F.data == "wiz:report")
 async def entry_report(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    user = await get_user(session, callback.from_user, private=True)
     classes = await classes_for_user(session, user)
     if not classes:
         await callback.message.answer("برای ادامه، ابتدا عضو یک کلاس شوید.")
@@ -156,6 +179,8 @@ async def entry_report(callback: CallbackQuery, state: FSMContext, session: Asyn
 
 @router.callback_query(F.data == "mgr:codes")
 async def entry_codes(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     await delete_panel(callback.message)
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = [
@@ -174,6 +199,8 @@ async def entry_codes(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "mgr:subject")
 async def entry_subject(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     await delete_panel(callback.message)
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = [
@@ -192,6 +219,8 @@ async def entry_subject(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "mgr:timetable")
 async def entry_tt(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     await delete_panel(callback.message)
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = [
@@ -211,6 +240,8 @@ async def entry_tt(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("mgr:connect_group"))
 async def entry_group(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     """Start official Telegram chat selection for a class manager."""
+    if not await _require_private_callback(callback):
+        return
     await delete_panel(callback.message)
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     parts = callback.data.split(":")
@@ -241,9 +272,11 @@ async def entry_group(callback: CallbackQuery, state: FSMContext, session: Async
 
 @router.callback_query(F.data == "adm:school")
 async def entry_school(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
-    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
-    if not user.is_platform_admin:
-        await callback.answer("دسترسی مدیر سامانه لازم است.", show_alert=True)
+    if not await _require_private_callback(callback):
+        return
+    user = await get_user(session, callback.from_user, private=True)
+    if not user.is_active or not user.is_platform_admin:
+        await callback.answer("دسترسی مدیر فعال سامانه لازم است.", show_alert=True)
         return
     await delete_panel(callback.message)
     await state.set_state(SchoolForm.name)
@@ -253,8 +286,13 @@ async def entry_school(callback: CallbackQuery, state: FSMContext, session: Asyn
 
 @router.callback_query(F.data == "adm:class")
 async def entry_class(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     await delete_panel(callback.message)
-    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    user = await get_user(session, callback.from_user, private=True)
+    if not user.is_active:
+        await callback.answer("حساب کاربری شما غیرفعال است.", show_alert=True)
+        return
     q = select(School).where(School.is_active.is_(True)).order_by(School.name)
     if not user.is_platform_admin:
         q = (
@@ -305,6 +343,12 @@ async def start_exam_after_class(message, state, session, class_id: int) -> None
 
 
 async def start_report_after_class(message, state, session, class_id: int) -> None:
+    if message.chat.type != "private":
+        await state.clear()
+        await message.answer(
+            "برای حفظ حریم خصوصی، ثبت گزارش روزانه فقط از گفت‌وگوی خصوصی ربات انجام می‌شود."
+        )
+        return
     await state.update_data(class_id=class_id)
     await state.set_state(ReportForm.body)
     await message.answer("متن گزارش امروز را ارسال کنید:", reply_markup=cancel_kb())
@@ -518,6 +562,7 @@ async def exam_when(message: Message, state: FSMContext, session: AsyncSession) 
 @router.message(ReportForm.body, F.text)
 async def report_body(message: Message, state: FSMContext, session: AsyncSession) -> None:
     if message.chat.type != "private":
+        await state.clear()
         await message.answer("ثبت گزارش روزانه فقط در گفت‌وگوی خصوصی ربات انجام می‌شود.")
         return
     if message.text == "❌ انصراف":

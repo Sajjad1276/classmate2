@@ -109,6 +109,12 @@ async def cb_group_view(callback: CallbackQuery, session: AsyncSession) -> None:
     parts = callback.data.split(":")
     action = parts[2]
     class_id = int(parts[3])
+    if action == "pending":
+        await callback.answer(
+            "صف بررسی فقط از پنل خصوصی ربات در دسترس است.",
+            show_alert=True,
+        )
+        return
     user = await get_user(session, callback.from_user, private=False)
     ctx = await get_class_with_school(session, class_id)
     if (
@@ -129,11 +135,16 @@ async def cb_group_new(callback: CallbackQuery, state: FSMContext, session: Asyn
     parts = callback.data.split(":")
     kind = parts[2]
     class_id = int(parts[3])
+    if kind == "report":
+        await callback.answer(
+            "برای ثبت گزارش روزانه، گفت‌وگوی خصوصی ربات و بخش «ثبت اطلاعات» را باز کنید.",
+            show_alert=True,
+        )
+        return
 
     from classmate.bot.handlers.wizards import (
         start_exam_after_class,
         start_homework_after_class,
-        start_report_after_class,
     )
 
     user = await get_user(session, callback.from_user, private=False)
@@ -155,7 +166,5 @@ async def cb_group_new(callback: CallbackQuery, state: FSMContext, session: Asyn
         await start_homework_after_class(callback.message, state, session, class_id)
     elif kind == "exam":
         await start_exam_after_class(callback.message, state, session, class_id)
-    elif kind == "report":
-        await start_report_after_class(callback.message, state, session, class_id)
     else:
         await callback.message.answer("نوع اطلاعات معتبر نیست.")

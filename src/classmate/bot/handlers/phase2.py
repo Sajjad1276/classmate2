@@ -36,6 +36,27 @@ router = Router(name="phase2")
 logger = logging.getLogger(__name__)
 
 
+async def _require_private_callback(callback: CallbackQuery) -> bool:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer(
+            "این عملیات فقط از گفت‌وگوی خصوصی ربات در دسترس است.",
+            show_alert=True,
+        )
+        return False
+    return True
+
+
+async def _require_private_message(
+    message: Message, state: FSMContext | None = None
+) -> bool:
+    if message.chat.type != "private":
+        if state is not None:
+            await state.clear()
+        await message.answer("این عملیات فقط در گفت‌وگوی خصوصی ربات انجام می‌شود.")
+        return False
+    return True
+
+
 def color_button(prefix: str, text: str, callback: str) -> InlineKeyboardButton:
     """Use semantic prefixes and Telegram's supported button styles together."""
     styles = {"🔴": "danger", "🟢": "success", "🔵": "primary", "🟡": "primary"}
@@ -61,6 +82,9 @@ async def submit_entry(message: Message, session: AsyncSession) -> None:
 
 
 async def _show_homeworks(message: Message, session: AsyncSession, class_id: int) -> None:
+    if message.chat.type != "private":
+        await message.answer("این بخش فقط از گفت‌وگوی خصوصی ربات در دسترس است.")
+        return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     if not await user_can_access_class(session, user, class_id):
         await message.answer("دسترسی شما به این کلاس فعال نیست.")
@@ -85,6 +109,8 @@ async def _show_homeworks(message: Message, session: AsyncSession, class_id: int
 
 @router.callback_query(F.data.startswith("p2:submit:"))
 async def submit_homework(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     homework_id = int(callback.data.split(":")[2])
     homework = await session.get(Homework, homework_id)
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
@@ -100,6 +126,8 @@ async def submit_homework(callback: CallbackQuery, state: FSMContext, session: A
 
 @router.message(SubmissionForm.answer, F.text)
 async def submit_text(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_message(message, state):
+        return
     if message.text == "❌ انصراف":
         await state.clear()
         user = await get_user(session, message.from_user, private=message.chat.type == "private")
@@ -110,11 +138,15 @@ async def submit_text(message: Message, state: FSMContext, session: AsyncSession
 
 @router.message(SubmissionForm.answer, F.document)
 async def submit_document(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_message(message, state):
+        return
     await _save_answer(message, state, session, file_id=message.document.file_id, file_type="document")
 
 
 @router.message(SubmissionForm.answer, F.photo)
 async def submit_photo(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_message(message, state):
+        return
     await _save_answer(message, state, session, file_id=message.photo[-1].file_id, file_type="photo")
 
 
@@ -205,6 +237,8 @@ async def polls(message: Message, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("p2:poll:"))
 async def poll_open(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     poll_id = int(callback.data.split(":")[2])
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     poll = await session.get(Poll, poll_id)
@@ -232,6 +266,8 @@ async def poll_open(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("p2:vote:"))
 async def poll_vote(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     _, _, poll_id_s, option_id_s = callback.data.split(":")
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     poll_id, option_id = int(poll_id_s), int(option_id_s)
@@ -250,6 +286,8 @@ async def poll_vote(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "p2:cancel")
 async def phase2_cancel(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     await state.clear()
     await delete_panel(callback.message)
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
@@ -271,6 +309,8 @@ async def support(message: Message, session: AsyncSession) -> None:
 
 @router.message(F.text == "👨‍🏫 ارزیابی کلاس")
 async def manager_evaluation(message: Message, session: AsyncSession) -> None:
+    if message.chat.type != "private":
+        return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = [row for row in await classes_for_user(session, user) if await is_class_manager(session, user, row[0])]
     if not classes:
@@ -285,6 +325,8 @@ async def manager_evaluation(message: Message, session: AsyncSession) -> None:
 
 @router.message(F.text == "📝 بررسی پاسخ‌ها")
 async def review_entry(message: Message, session: AsyncSession) -> None:
+    if message.chat.type != "private":
+        return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     classes = [row for row in await classes_for_user(session, user) if await is_class_manager(session, user, row[0])]
     if not classes:
@@ -298,6 +340,9 @@ async def review_entry(message: Message, session: AsyncSession) -> None:
 
 
 async def submissions_panel(message: Message, session: AsyncSession, class_id: int) -> None:
+    if message.chat.type != "private":
+        await message.answer("این بخش فقط از گفت‌وگوی خصوصی ربات در دسترس است.")
+        return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     if not await is_class_manager(session, user, class_id):
         await message.answer("فقط مدیر کلاس می‌تواند پاسخ‌های ارسالی را بررسی کند.")
@@ -329,6 +374,8 @@ async def submissions_panel(message: Message, session: AsyncSession, class_id: i
 
 @router.callback_query(F.data.startswith("p2:review:"))
 async def review_open(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     submission = await session.get(HomeworkSubmission, int(callback.data.split(":")[2]))
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     if submission is None:
@@ -373,6 +420,8 @@ async def review_open(callback: CallbackQuery, state: FSMContext, session: Async
 
 @router.message(ReviewSubmissionForm.feedback, F.text)
 async def review_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_message(message, state):
+        return
     if message.text == "❌ انصراف":
         await state.clear()
         user = await get_user(session, message.from_user, private=message.chat.type == "private")
@@ -429,6 +478,9 @@ async def review_submit(message: Message, state: FSMContext, session: AsyncSessi
 
 
 async def evaluation_panel(message: Message, session: AsyncSession, state: FSMContext, class_id: int) -> None:
+    if message.chat.type != "private":
+        await message.answer("این بخش فقط از گفت‌وگوی خصوصی ربات در دسترس است.")
+        return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     if not await is_class_manager(session, user, class_id):
         await message.answer("فقط مدیر کلاس می‌تواند ارزیابی انجام دهد.")
@@ -449,6 +501,8 @@ async def evaluation_panel(message: Message, session: AsyncSession, state: FSMCo
 
 @router.callback_query(F.data.startswith("p2:evaluate:"))
 async def evaluation_kind(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     data = await state.get_data()
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     class_id = data.get("evaluation_class_id")
@@ -486,6 +540,8 @@ async def evaluation_kind(callback: CallbackQuery, state: FSMContext, session: A
 
 @router.message(PollCreateForm.question, F.text)
 async def poll_question(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_message(message, state):
+        return
     if message.text == "❌ انصراف":
         await state.clear()
         user = await get_user(session, message.from_user, private=message.chat.type == "private")
@@ -498,6 +554,8 @@ async def poll_question(message: Message, state: FSMContext, session: AsyncSessi
 
 @router.message(PollCreateForm.options, F.text)
 async def poll_options_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_message(message, state):
+        return
     if message.text == "❌ انصراف":
         await state.clear()
         user = await get_user(session, message.from_user, private=message.chat.type == "private")
@@ -522,6 +580,8 @@ async def poll_options_submit(message: Message, state: FSMContext, session: Asyn
 
 @router.message(EvaluationForm.data, F.text)
 async def evaluation_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_message(message, state):
+        return
     if message.text == "❌ انصراف":
         await state.clear()
         user = await get_user(session, message.from_user, private=message.chat.type == "private")

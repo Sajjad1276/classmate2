@@ -180,6 +180,9 @@ async def render_pending_for_class(
     close_reply_keyboard: bool = True,
 ) -> None:
     """Render a private, actionable review queue for one class."""
+    if target.chat.type != "private":
+        await target.answer("صف بررسی فقط از پنل خصوصی ربات در دسترس است.")
+        return
     if not await can_approve(session, user, class_id):
         await _education_result(
             target, "شما اجازه بررسی اطلاعات این کلاس را ندارید.", close_reply_keyboard
@@ -258,6 +261,9 @@ async def show_pending_for_user(
     user: User,
 ) -> None:
     """Show only classes where the current user has active review authority."""
+    if target.chat.type != "private":
+        await target.answer("صف بررسی فقط از پنل خصوصی ربات در دسترس است.")
+        return
     classes = [
         item
         for item in await classes_for_user(session, user)
@@ -299,7 +305,8 @@ async def _education_result(target: Message, text: str, close_reply_keyboard: bo
     if close_reply_keyboard:
         await render_panel(target, text, education_result_kb())
     else:
-        await target.answer(text, reply_markup=education_result_kb())
+        # Group-panel results must not show private navigation callbacks.
+        await target.answer(text)
 
 
 async def run_view(
@@ -390,6 +397,9 @@ async def run_view(
         await _education_result(target, "\n".join(lines), close_reply_keyboard)
 
     elif action == "pending":
+        if target.chat.type != "private":
+            await target.answer("صف بررسی فقط از پنل خصوصی ربات در دسترس است.")
+            return
         await render_pending_for_class(
             target, session, user, class_id, close_reply_keyboard=close_reply_keyboard
         )
@@ -467,8 +477,13 @@ async def btn_education(message: Message) -> None:
 
 
 @router.message(F.text.in_({"➕ ثبت اطلاعات", "ثبت اطلاعات", "ثبت جدید"}))
-async def btn_new(message: Message) -> None:
+async def btn_new(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
+        return
+    user = await get_user(session, message.from_user, private=True)
+    _school_admin, manager, _approver = await role_flags(session, user)
+    if not user.is_active or not (manager or user.is_platform_admin):
+        await message.answer("ثبت تکلیف و امتحان از این بخش فقط برای مدیر کلاس مجاز است.")
         return
     await render_panel(
         message,
@@ -481,8 +496,13 @@ async def btn_new(message: Message) -> None:
 async def btn_manage(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
-    user = await get_user(session, message.from_user, private=message.chat.type == "private")
+    user = await get_user(session, message.from_user, private=True)
     is_admin, is_manager, is_approver = await role_flags(session, user)
+    if not user.is_active or not (
+        is_admin or is_manager or is_approver or user.is_platform_admin
+    ):
+        await message.answer("دسترسی بخش مدیریت برای حساب شما فعال نیست.")
+        return
     await render_panel(
         message,
         "⚙️ <b>مدیریت</b>\n\nعملیات موردنظر را انتخاب کنید:",
@@ -495,14 +515,19 @@ async def btn_manage(message: Message, session: AsyncSession) -> None:
 
 
 @router.message(F.text.in_({"🏛 مدیریت سامانه", "مدیریت سامانه"}))
-async def btn_admin(message: Message) -> None:
+async def btn_admin(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
+        return
+    user = await get_user(session, message.from_user, private=True)
+    is_school_admin, _, _ = await role_flags(session, user)
+    if not user.is_active or not (is_school_admin or user.is_platform_admin):
+        await message.answer("دسترسی مدیریت مدرسه یا سامانه برای شما فعال نیست.")
         return
     await render_panel(
         message,
         "🏛 <b>مدیریت سامانه</b>\n\n"
         "عملیات موردنظر را انتخاب کنید:",
-        admin_menu(),
+        admin_menu(is_platform_admin=user.is_platform_admin),
     )
 
 
@@ -516,6 +541,33 @@ async def btn_join(message: Message, state: FSMContext) -> None:
     await message.answer("🔑 کد دعوت کلاس را ارسال کنید:", reply_markup=cancel_kb())
 
 
+@router.message(F.text.in_({"📋 ثبت گزارش روزانه", "ثبت گزارش روزانه"}))
+async def btn_report(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if message.chat.type != "private":
+        return
+    user = await get_user(session, message.from_user, private=True)
+    if not user.is_active:
+        await message.answer("حساب کاربری شما غیرفعال است.")
+        return
+    classes = await classes_for_user(session, user)
+    if not classes:
+        await message.answer(
+            "برای ثبت گزارش روزانه، ابتدا با کد دعوت وارد یک کلاس شوید.",
+            reply_markup=await menu_for(session, user),
+        )
+        return
+    if len(classes) == 1:
+        from classmate.bot.handlers.wizards import start_report_after_class
+
+        await start_report_after_class(message, state, session, classes[0][0])
+        return
+    await render_panel(
+        message,
+        "🏫 گزارش روزانه را برای کدام کلاس ثبت می‌کنید؟",
+        class_picker(classes, action="report"),
+    )
+
+
 @router.message(F.text.in_({"❓ راهنمای استفاده", "راهنما"}))
 async def btn_help(message: Message, session: AsyncSession) -> None:
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
@@ -527,6 +579,7 @@ async def btn_help(message: Message, session: AsyncSession) -> None:
         "• <b>🏫 کلاس‌های من</b> — مشاهده کلاس‌های فعال شما\n"
         "• <b>🔎 جست‌وجو</b> — جست‌وجو در تکلیف، امتحان و گزارش\n"
         "• <b>🎓 بخش آموزشی</b> — تکلیف، امتحان، برنامه، نمره، حضور و نظرسنجی\n"
+        "• <b>📋 ثبت گزارش روزانه</b> — پیش‌نمایش، ویرایش و ارسال گزارش برای تأیید\n"
         "• <b>📣 اطلاعیه‌ها</b> — مشاهده اطلاعیه‌های کلاس\n"
         "• <b>🔔 اعلان‌ها</b> — مدیریت یادآوری‌ها\n\n"
         "<b>امکانات آموزشی دانش‌آموز</b>\n"
@@ -553,6 +606,9 @@ async def btn_help(message: Message, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("menu:"))
 async def cb_category(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("این منو فقط از گفت‌وگوی خصوصی ربات در دسترس است.", show_alert=True)
+        return
     action = callback.data.split(":", 1)[1]
     await delete_panel(callback.message)
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
@@ -588,17 +644,22 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
             manage_class_menu(),
         )
     elif action == "admin":
-        if not user.is_platform_admin:
-            await callback.answer("دسترسی مدیر سامانه لازم است.", show_alert=True)
+        is_school_admin, _, _ = await role_flags(session, user)
+        if not (is_school_admin or user.is_platform_admin):
+            await callback.answer("دسترسی مدیریت مدرسه یا سامانه لازم است.", show_alert=True)
             return
         await render_panel(
             callback.message,
             "🏛 <b>مدیریت سامانه</b>\nعملیات موردنظر را انتخاب کنید:",
-            admin_menu(),
+            admin_menu(is_platform_admin=user.is_platform_admin),
         )
     elif action == "education":
         await render_panel(callback.message, "🎓 <b>بخش آموزشی</b>\nگزینه موردنظر را انتخاب کنید:", education_menu())
     elif action == "new":
+        _school_admin, manager, _approver = await role_flags(session, user)
+        if not (manager or user.is_platform_admin):
+            await callback.answer("ثبت تکلیف و امتحان از این بخش فقط برای مدیر کلاس مجاز است.", show_alert=True)
+            return
         await render_panel(
             callback.message,
             "📝 <b>ثبت اطلاعات</b>\nنوع اطلاعات موردنظر را انتخاب کنید:",
@@ -615,6 +676,9 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
 
 @router.callback_query(F.data == "ui:home")
 async def cb_home(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("منوی اصلی فقط در گفت‌وگوی خصوصی ربات در دسترس است.", show_alert=True)
+        return
     await state.clear()
     await delete_panel(callback.message)
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
@@ -628,6 +692,9 @@ async def cb_home(callback: CallbackQuery, state: FSMContext, session: AsyncSess
 
 @router.callback_query(F.data.startswith("pick:"))
 async def cb_pick(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("انتخاب کلاس فقط از پنل خصوصی ربات انجام می‌شود.", show_alert=True)
+        return
     _, action, id_s = callback.data.split(":", 2)
     class_id = int(id_s)
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
@@ -745,9 +812,26 @@ async def cb_pick(callback: CallbackQuery, session: AsyncSession, state: FSMCont
 
 @router.callback_query(F.data.startswith("pickpage:"))
 async def cb_pickpage(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("انتخاب کلاس فقط از پنل خصوصی ربات انجام می‌شود.", show_alert=True)
+        return
     _, action, page_s = callback.data.split(":", 2)
-    user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
+    user = await get_user(session, callback.from_user, private=True)
     classes = await classes_for_user(session, user)
+    manager_actions = {
+        "content", "announcement", "evaluation", "review_submissions",
+        "hw", "exam", "codes", "subject", "timetable", "group",
+    }
+    if action in manager_actions:
+        classes = [
+            item for item in classes
+            if await is_class_manager(session, user, item[0])
+        ]
+    elif action == "pending":
+        classes = [
+            item for item in classes
+            if await can_approve(session, user, item[0])
+        ]
     await callback.message.edit_reply_markup(
         reply_markup=class_picker(classes, action=action, page=int(page_s))
     )

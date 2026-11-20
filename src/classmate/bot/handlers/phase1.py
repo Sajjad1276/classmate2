@@ -34,6 +34,26 @@ logger = logging.getLogger(__name__)
 WEEKDAYS = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
 
 
+async def _require_private_callback(callback: CallbackQuery) -> bool:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer(
+            "این عملیات فقط از گفت‌وگوی خصوصی ربات در دسترس است.",
+            show_alert=True,
+        )
+        return False
+    return True
+
+
+async def _require_private_message(
+    message: Message, state: FSMContext
+) -> bool:
+    if message.chat.type != "private":
+        await state.clear()
+        await message.answer("این عملیات فقط در گفت‌وگوی خصوصی ربات انجام می‌شود.")
+        return False
+    return True
+
+
 def dashboard_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎓 بخش آموزشی", callback_data="menu:education", style="primary")],
@@ -133,6 +153,8 @@ async def dashboard(message: Message, session: AsyncSession) -> None:
 
 @router.callback_query(F.data == "p1:dashboard")
 async def dashboard_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     await delete_panel(callback.message)
     await _render_dashboard(callback.message, session, user)
@@ -141,6 +163,8 @@ async def dashboard_callback(callback: CallbackQuery, session: AsyncSession) -> 
 
 @router.callback_query(F.data == "p1:calendar")
 async def calendar_entry(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = await classes_for_user(session, user)
     await delete_panel(callback.message)
@@ -163,6 +187,8 @@ async def calendar_entry(callback: CallbackQuery, session: AsyncSession) -> None
 
 @router.callback_query(F.data == "p1:join")
 async def dashboard_join(callback: CallbackQuery, state: FSMContext) -> None:
+    if not await _require_private_callback(callback):
+        return
     await delete_panel(callback.message)
     await state.set_state(JoinForm.code)
     await callback.message.answer("🔑 کد دعوت کلاس را ارسال کنید:", reply_markup=cancel_kb())
@@ -171,6 +197,8 @@ async def dashboard_join(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "p1:preferences")
 async def preferences_entry(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = await classes_for_user(session, user)
     await delete_panel(callback.message)
@@ -232,6 +260,8 @@ async def search_entry(message: Message, state: FSMContext) -> None:
 
 @router.message(SearchForm.query, F.text)
 async def search_submit(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_message(message, state):
+        return
     if message.text == "❌ انصراف":
         await state.clear()
         user = await get_user(
@@ -298,6 +328,8 @@ async def _render_preferences(message: Message, session: AsyncSession, user, cla
 
 @router.callback_query(F.data.startswith("p1:toggle:"))
 async def toggle_preference(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     _, _, kind, class_id_s = callback.data.split(":")
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     class_id = int(class_id_s)
@@ -387,6 +419,8 @@ async def _render_content(message: Message, session: AsyncSession, class_id: int
 
 @router.callback_query(F.data.startswith("p1:archive:"))
 async def archive_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     _, _, kind, record_id = callback.data.split(":")
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     ok, text = await archive_record(session, kind, int(record_id), user)
@@ -399,6 +433,8 @@ async def archive_callback(callback: CallbackQuery, session: AsyncSession) -> No
 
 @router.callback_query(F.data.startswith("p1:edit:"))
 async def edit_callback(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     _, _, kind, record_id = callback.data.split(":")
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     model = {"homework": Homework, "exam": Exam, "report": DailyReport}[kind]
@@ -414,6 +450,8 @@ async def edit_callback(callback: CallbackQuery, state: FSMContext, session: Asy
 
 @router.message(EditRecordForm.first, F.text)
 async def edit_first(message: Message, state: FSMContext) -> None:
+    if not await _require_private_message(message, state):
+        return
     if message.text == "❌ انصراف":
         return
     data = await state.get_data()
@@ -425,6 +463,8 @@ async def edit_first(message: Message, state: FSMContext) -> None:
 
 @router.message(EditRecordForm.second, F.text)
 async def edit_second(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_message(message, state):
+        return
     if message.text == "❌ انصراف":
         return
     data = await state.get_data()
@@ -438,6 +478,8 @@ async def edit_second(message: Message, state: FSMContext, session: AsyncSession
 
 @router.callback_query(F.data == "p1:announcements")
 async def announcements_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     await delete_panel(callback.message)
     await announcements(callback.message, session)
     await callback.answer()
@@ -445,6 +487,8 @@ async def announcements_callback(callback: CallbackQuery, session: AsyncSession)
 
 @router.callback_query(F.data == "p1:new_announcement")
 async def new_announcement(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
     user = await get_user(session, callback.from_user, private=bool(callback.message and callback.message.chat.type == "private"))
     classes = [row for row in await classes_for_user(session, user) if await is_class_manager(session, user, row[0])]
     if not classes:
@@ -467,6 +511,8 @@ async def start_announcement_after_class(message, state: FSMContext, class_id: i
 
 @router.message(AnnouncementForm.title, F.text)
 async def announcement_title(message: Message, state: FSMContext) -> None:
+    if not await _require_private_message(message, state):
+        return
     if message.text == "❌ انصراف":
         return
     await state.update_data(title=message.text.strip()[:180])
@@ -476,6 +522,8 @@ async def announcement_title(message: Message, state: FSMContext) -> None:
 
 @router.message(AnnouncementForm.body, F.text)
 async def announcement_body(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _require_private_message(message, state):
+        return
     if message.text == "❌ انصراف":
         return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
