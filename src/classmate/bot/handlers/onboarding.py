@@ -10,7 +10,9 @@ from classmate.core.config import get_settings
 from classmate.core.enums import Role
 from classmate.db.models import AcademicYear, ClassGroup, ClassMembership, School, SchoolMembership, User
 from classmate.services.permissions import (
+    activate_student_membership,
     code_expiry,
+    connect_group_by_code,
     get_class_with_school,
     hash_code,
     is_school_admin,
@@ -167,26 +169,32 @@ async def connect_group(message: Message, session: AsyncSession) -> None:
         return
 
     user = await _user(session, message.from_user)
-    code_h = hash_code(code)
-    cls = await session.scalar(
-        select(ClassGroup).where(
-            ClassGroup.group_link_code_hash == code_h,
-            ClassGroup.is_active.is_(True),
+    try:
+        bot_user = await message.bot.me()
+        bot_member = await message.bot.get_chat_member(message.chat.id, bot_user.id)
+        requester_member = await message.bot.get_chat_member(
+            message.chat.id, message.from_user.id
         )
-    )
-    if cls is None:
-        await message.answer("کد واردشده معتبر نیست.")
-        return
-    if cls.group_link_code_expires_at and cls.group_link_code_expires_at < __import__("datetime").datetime.now(
-        __import__("datetime").timezone.utc
-    ):
-        await message.answer("این کد منقضی شده است.")
+    except Exception:
+        await message.answer(
+            "امکان بررسی مدیران گروه وجود ندارد. مطمئن شوید ربات در گروه است و دوباره تلاش کنید."
+        )
         return
 
-    cls.group_chat_id = message.chat.id
-    cls.group_chat_title = message.chat.title
-    cls.group_link_code_hash = None
-    cls.group_link_code_expires_at = None
+    try:
+        cls = await connect_group_by_code(
+            session,
+            code=code,
+            chat_id=message.chat.id,
+            chat_title=message.chat.title,
+            actor=user,
+            bot_is_admin=bot_member.status in {"administrator", "creator"},
+            actor_is_admin=requester_member.status in {"administrator", "creator"},
+        )
+    except (PermissionError, ValueError) as exc:
+        await message.answer(str(exc))
+        return
+
     await message.answer(f"گروه با موفقیت به کلاس <b>{escape(cls.name)}</b> متصل شد.")
 
 
@@ -218,16 +226,7 @@ async def join_class(message: Message, session: AsyncSession) -> None:
         await message.answer("این کد منقضی شده است.")
         return
 
-    existing = await session.scalar(
-        select(ClassMembership).where(
-            ClassMembership.class_id == cls.id, ClassMembership.user_id == user.id
-        )
-    )
-    if existing:
-        existing.is_active = True
-    else:
-        session.add(ClassMembership(class_id=cls.id, user_id=user.id, role=Role.STUDENT))
-
+    await activate_student_membership(session, cls.id, user.id)
     await message.answer(f"با موفقیت به کلاس <b>{escape(cls.name)}</b> ملحق شدید.")
 
 
