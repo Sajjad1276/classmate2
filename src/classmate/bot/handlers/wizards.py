@@ -22,7 +22,7 @@ from classmate.bot.keyboards import (
     skip_or_cancel_kb,
     subject_picker,
 )
-from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for
+from classmate.bot.handlers.ui import delete_panel, classes_for_user, get_user, menu_for, render_panel
 from classmate.bot.states import (
     ClassForm,
     ConnectForm,
@@ -571,7 +571,7 @@ async def report_body(message: Message, state: FSMContext, session: AsyncSession
             ],
         ]
     )
-    await message.answer(
+    await render_panel(message,
         "📋 <b>پیش‌نمایش گزارش روزانه</b>\n\n"
         f"{preview}\n\n"
         + (
@@ -579,7 +579,7 @@ async def report_body(message: Message, state: FSMContext, session: AsyncSession
             if is_operator
             else "پس از تأیید شما، گزارش فقط برای بررسی اپراتور ارسال می‌شود و تا آن زمان در گروه منتشر نخواهد شد."
         ),
-        reply_markup=keyboard,
+        keyboard,
     )
 
 
