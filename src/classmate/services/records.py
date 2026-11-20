@@ -22,6 +22,7 @@ from classmate.db.models import (
     School,
     Subject,
     TimetableEntry,
+    User,
 )
 from classmate.domain.dates import persian_weekday
 from classmate.services.notifications import schedule_approved_record_reminders
