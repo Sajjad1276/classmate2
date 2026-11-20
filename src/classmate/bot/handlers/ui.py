@@ -562,7 +562,7 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
     if not user.is_active:
         await callback.answer("حساب کاربری شما غیرفعال است.", show_alert=True)
         return
-    if action in {"homework", "exams", "week", "today", "content", "reviews", "evaluation", "pending"}:
+    if action in {"homework", "exams", "week", "today", "content", "reviews", "evaluation"}:
         mapped = {"reviews": "review_submissions", "content": "content"}.get(action, action)
         classes = await classes_for_user(session, user)
         if len(classes) == 1 and mapped in {"content", "review_submissions", "evaluation"}:
@@ -578,6 +578,8 @@ async def cb_category(callback: CallbackQuery, state: FSMContext, session: Async
                 await evaluation_panel(callback.message, session, state, cid)
         else:
             await ask_class(callback.message, session, mapped, user)
+    elif action == "pending":
+        await show_pending_for_user(callback.message, session, user)
     elif action == "class_manage":
         _school_admin, manager, _approver = await role_flags(session, user)
         if not manager:
@@ -639,7 +641,7 @@ async def cb_pick(callback: CallbackQuery, session: AsyncSession, state: FSMCont
 
     manager_actions = {
         "content", "announcement", "evaluation", "review_submissions",
-        "hw", "exam", "report", "codes", "subject", "timetable", "group",
+        "hw", "exam", "codes", "subject", "timetable", "group",
     }
     if action in manager_actions and not await is_class_manager(session, user, class_id):
         await callback.answer("این عملیات فقط برای مدیر کلاس مجاز است.", show_alert=True)
