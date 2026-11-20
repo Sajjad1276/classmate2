@@ -477,8 +477,13 @@ async def btn_education(message: Message) -> None:
 
 
 @router.message(F.text.in_({"➕ ثبت اطلاعات", "ثبت اطلاعات", "ثبت جدید"}))
-async def btn_new(message: Message) -> None:
+async def btn_new(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
+        return
+    user = await get_user(session, message.from_user, private=True)
+    _school_admin, manager, _approver = await role_flags(session, user)
+    if not user.is_active or not (manager or user.is_platform_admin):
+        await message.answer("ثبت تکلیف و امتحان از این بخش فقط برای مدیر کلاس مجاز است.")
         return
     await render_panel(
         message,
