@@ -723,3 +723,49 @@ def test_grade_values_reject_non_finite_and_out_of_range_numbers(
     else:
         with pytest.raises(ValueError):
             validate_grade_values(score, max_score)
+
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("handler_name", "command_text", "expected"),
+    [
+        (
+            "new_homework",
+            "/new_homework ریاضی | تمرین | حل شود",
+            "فقط مدیر کلاس می‌تواند تکلیف ثبت کند.",
+        ),
+        (
+            "new_exam",
+            "/new_exam ریاضی | آزمون | فصل ۱ | ۱۴۰۶/۰۱/۰۱ ۱۰:۰۰",
+            "فقط مدیر کلاس می‌تواند امتحان ثبت کند.",
+        ),
+        (
+            "new_report",
+            "/new_report گزارش روزانه",
+            "فقط مدیر کلاس می‌تواند گزارش روزانه ثبت کند.",
+        ),
+    ],
+)
+async def test_legacy_record_commands_require_class_manager(
+    world, monkeypatch, handler_name, command_text, expected
+):
+    from classmate.bot.handlers import records
+
+    async def fake_context(_message, _session, class_id=None):
+        return (world["class"], world["year"], world["school"]), world["student"]
+
+    monkeypatch.setattr(records, "_ctx", fake_context)
+    replies = []
+
+    async def answer(text):
+        replies.append(text)
+
+    message = SimpleNamespace(
+        text=command_text,
+        chat=SimpleNamespace(type="group"),
+        answer=answer,
+    )
+    await getattr(records, handler_name)(message, world["session"])
+
+    assert replies == [expected]
