@@ -37,3 +37,14 @@ class EntityType(StrEnum):
     HOMEWORK = "homework"
     EXAM = "exam"
     REPORT = "report"
+
+
+class OutboxStatus(StrEnum):
+    """Delivery lifecycle for transactional Telegram outbox messages."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    SENT = "sent"
+    RETRY = "retry"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
