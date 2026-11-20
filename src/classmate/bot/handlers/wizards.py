@@ -592,9 +592,13 @@ async def join_code(message: Message, state: FSMContext, session: AsyncSession) 
     code = message.text.strip().upper()
     user = await get_user(session, message.from_user, private=True)
     cls = await session.scalar(
-        select(ClassGroup).where(
+        select(ClassGroup)
+        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
+        .where(
             ClassGroup.member_join_code_hash == hash_code(code),
             ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
         )
     )
     if cls is None:
@@ -602,7 +606,11 @@ async def join_code(message: Message, state: FSMContext, session: AsyncSession) 
         return
     from datetime import datetime
 
-    if cls.member_join_code_expires_at and cls.member_join_code_expires_at < datetime.now(timezone.utc):
+    if (
+        cls.member_join_code_expires_at is None
+        or cls.member_join_code_expires_at.replace(tzinfo=cls.member_join_code_expires_at.tzinfo or timezone.utc)
+        < datetime.now(timezone.utc)
+    ):
         await message.answer("این این کد منقضی شده است. لطفاً کد جدیدی دریافت کنید.")
         await state.clear()
         await message.answer("منو:", reply_markup=await menu_for(session, user))
