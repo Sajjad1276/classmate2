@@ -15,6 +15,7 @@ from classmate.db.models import (
     PollOption,
     PollResponse,
     ReminderJob,
+    School,
     TelegramOutbox,
     User,
 )
@@ -503,7 +504,7 @@ async def test_school_creation_rejects_unknown_timezone(world, monkeypatch):
     from classmate.bot.handlers import onboarding
 
     async def admin_user(*args, **kwargs):
-        return world["manager"]
+        return SimpleNamespace(id=world["manager"].id, is_platform_admin=True)
 
     monkeypatch.setattr(onboarding, "_user", admin_user)
     replies = []
