@@ -5,12 +5,13 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNotFound
 from sqlalchemy import select, update
 
 from classmate.core.config import get_settings
-from classmate.core.enums import ReminderStatus
+from classmate.core.enums import EntityType, RecordStatus, ReminderStatus
 from classmate.core.logging import configure_logging
-from classmate.db.models import ReminderJob
+from classmate.db.models import ClassGroup, ClassMembership, Exam, Homework, ReminderJob, User
 from classmate.db.session import SessionFactory
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,50 @@ async def claim_jobs(session):
     return rows
 
 
+async def _job_is_deliverable(session, job: ReminderJob) -> bool:
+    """Revalidate the record, class and recipient immediately before delivery."""
+    class_group = await session.get(ClassGroup, job.class_id)
+    if class_group is None or not class_group.is_active:
+        return False
+
+    model = {
+        EntityType.HOMEWORK.value: Homework,
+        EntityType.EXAM.value: Exam,
+    }.get(job.entity_type)
+    if model is None:
+        return False
+    record = await session.get(model, job.entity_id)
+    if (
+        record is None
+        or record.class_id != job.class_id
+        or record.status != RecordStatus.APPROVED
+    ):
+        return False
+
+    if job.target_type == "group":
+        return class_group.group_chat_id == job.target_id
+
+    if job.target_type == "private":
+        user = await session.scalar(
+            select(User).where(
+                User.telegram_id == job.target_id,
+                User.is_active.is_(True),
+                User.private_chat_started.is_(True),
+            )
+        )
+        if user is None:
+            return False
+        membership_id = await session.scalar(
+            select(ClassMembership.id).where(
+                ClassMembership.class_id == job.class_id,
+                ClassMembership.user_id == user.id,
+                ClassMembership.is_active.is_(True),
+            )
+        )
+        return membership_id is not None
+    return False
+
+
 async def process_once(bot: Bot) -> int:
     sent = 0
     async with SessionFactory() as session:
@@ -59,6 +104,17 @@ async def process_once(bot: Bot) -> int:
             jobs = await claim_jobs(session)
 
         for job in jobs:
+            # Permissions and record state may have changed while the job waited.
+            async with SessionFactory() as validation_session:
+                async with validation_session.begin():
+                    deliverable = await _job_is_deliverable(validation_session, job)
+                    if not deliverable:
+                        row = await validation_session.get(ReminderJob, job.id)
+                        if row and row.status == ReminderStatus.PROCESSING:
+                            row.status = ReminderStatus.CANCELLED
+                            row.locked_at = None
+            if not deliverable:
+                continue
             try:
                 await bot.send_message(job.target_id, job.message_text)
                 async with SessionFactory() as s2:
@@ -78,8 +134,17 @@ async def process_once(bot: Bot) -> int:
                             row.attempts += 1
                             row.last_error = str(exc)[:500]
                             row.locked_at = None
-                            if row.attempts >= 5:
+                            permanent = isinstance(
+                                exc, (TelegramBadRequest, TelegramForbiddenError, TelegramNotFound)
+                            )
+                            if permanent or row.attempts >= 5:
                                 row.status = ReminderStatus.FAILED
+                                if row.target_type == "private":
+                                    recipient = await s2.scalar(
+                                        select(User).where(User.telegram_id == row.target_id)
+                                    )
+                                    if recipient is not None:
+                                        recipient.private_chat_started = False
                             else:
                                 row.status = ReminderStatus.RETRY
                                 row.scheduled_at = datetime.now(timezone.utc) + timedelta(
