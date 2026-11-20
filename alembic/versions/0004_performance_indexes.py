@@ -36,12 +36,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    inspector = inspect(bind)
-    for name, table, _columns in reversed(INDEXES):
-        if not inspector.has_table(table):
-            continue
-        existing = {item["name"] for item in inspector.get_indexes(table)}
-        if name in existing:
-            op.drop_index(name, table_name=table)
-            inspector = inspect(bind)
+    # Indexes may have been present in the frozen 0001 metadata before this
+    # revision ran. We cannot distinguish pre-existing from newly added
+    # indexes safely, so downgrade is intentionally non-destructive.
+    pass
