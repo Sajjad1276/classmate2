@@ -568,7 +568,7 @@ async def btn_report(message: Message, state: FSMContext, session: AsyncSession)
     )
 
 
-@router.message(F.text.in_({"❓ راهنمای استفاده", "راهنما"}))
+@router.message(F.text.in_({"❓ راهنما", "❓ راهنمای استفاده", "راهنما"}))
 async def btn_help(message: Message, session: AsyncSession) -> None:
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     await message.answer(
