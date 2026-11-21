@@ -11,7 +11,6 @@ from classmate.domain.dates import jalali_date, jalali_datetime
 from classmate.services.permissions import get_class_with_school, user_can_access_class
 from classmate.services.records import get_group_context, list_exams, list_homework, list_reports
 from classmate.services.users import ensure_user
-from classmate.core.config import get_settings
 from classmate.db.models import TimetableEntry, Subject
 from sqlalchemy import or_, select
 
@@ -28,9 +27,6 @@ async def _resolve_class(message: Message, session: AsyncSession, arg: str | Non
         full_name=message.from_user.full_name or "User",
         private_chat_started=message.chat.type == "private",
     )
-    settings = get_settings()
-    if message.from_user.id in settings.bootstrap_admin_id_set:
-        user.is_platform_admin = True
 
     if not user.is_active:
         return None, user
@@ -54,7 +50,9 @@ async def cmd_homework(message: Message, session: AsyncSession) -> None:
     arg = message.text.split(maxsplit=1)[1] if message.text and " " in message.text else None
     ctx, _ = await _resolve_class(message, session, arg)
     if ctx is None:
-        await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید. در گروه ارسال کنید یا از /homework شناسه_کلاس استفاده کنید")
+        await message.answer(
+            "کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید. در گروه ارسال کنید یا از /homework شناسه_کلاس استفاده کنید"
+        )
         return
     class_group, _, _ = ctx
     rows = await list_homework(session, class_group.id)
@@ -140,7 +138,9 @@ async def cmd_week(message: Message, session: AsyncSession) -> None:
         )
     ).all()
     if not entries:
-        await message.answer("برنامه هفتگی هنوز تنظیم نشده است. مدیر کلاس می‌تواند آن را از بخش «مدیریت کلاس» تنظیم کند.")
+        await message.answer(
+            "برنامه هفتگی هنوز تنظیم نشده است. مدیر کلاس می‌تواند آن را از بخش «مدیریت کلاس» تنظیم کند."
+        )
         return
     lines = ["📅 <b>برنامه هفتگی</b>"]
     current_day = -1

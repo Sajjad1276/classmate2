@@ -1,27 +1,22 @@
 # Architecture — ClassMate 2
 
-## Processes
+## Scope
+ClassMate 2 is the learner-facing bot. It handles class invitation, educational queries, homework submission, learner history and support. Platform administration, school/class setup, content authoring, approvals, reviews, group connection and staff evaluation are intentionally out of scope and belong in `classmatework`.
 
-- `classmate.bot.main` — aiogram polling + routers
-- `classmate.worker.main` — reminder leasing and Telegram delivery
+## Processes
+- `classmate.bot.main` — aiogram polling + learner routers
+- `classmate.worker.main` — learner notification leasing and Telegram delivery
 - PostgreSQL — source of truth
 - Redis — FSM storage in production
 
 ## Layers
-
-- **bot/handlers** — I/O only
-- **services** — use-cases, permissions, scheduling
+- **bot/handlers** — learner I/O only
+- **services** — read-only educational queries and learner submissions
 - **domain** — pure helpers (dates)
 - **db** — SQLAlchemy models + session
 
-## DI
+## Access boundary
+Access is limited to active student memberships in active classes. No platform-admin, school-admin or class-manager authorization path is evaluated by the active application.
 
-`DbSessionMiddleware` injects `session: AsyncSession` into every handler. Handlers must not open their own sessions.
-
-## Tenant isolation
-
-School → AcademicYear → Class. Access always goes through membership or school admin role. Platform admin is bootstrap-only.
-
-## Reminders
-
-`ReminderJob` rows with `dedupe_key`, `FOR UPDATE SKIP LOCKED`, lease recovery, exponential retry.
+## Historical schema
+Alembic migrations are retained as a compatibility record. Legacy management tables and columns are not used by the active ClassMate 2 code and should be migrated only by the separate management repository when its ownership model is ready.

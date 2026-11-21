@@ -20,7 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from classmate.core.enums import OutboxStatus, RecordStatus, ReminderStatus, Role
+from classmate.core.enums import OutboxStatus, RecordStatus, ReminderStatus
 from classmate.db.base import Base
 
 
@@ -40,7 +40,6 @@ class User(TimestampMixin, Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     username: Mapped[str | None] = mapped_column(String(64))
     full_name: Mapped[str] = mapped_column(String(160), nullable=False)
-    is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     private_chat_started: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
@@ -51,22 +50,6 @@ class School(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(180), nullable=False)
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Tehran", nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-
-class SchoolMembership(TimestampMixin, Base):
-    __tablename__ = "school_memberships"
-    __table_args__ = (
-        UniqueConstraint("school_id", "user_id", name="uq_school_user"),
-        Index("ix_school_memberships_user_active_school", "user_id", "is_active", "school_id"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    school_id: Mapped[int] = mapped_column(ForeignKey("schools.id", ondelete="CASCADE"), index=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    role: Mapped[Role] = mapped_column(
-        Enum(Role, name="school_role", native_enum=False), default=Role.SCHOOL_ADMIN, nullable=False
-    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
@@ -111,9 +94,6 @@ class ClassMembership(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    role: Mapped[Role] = mapped_column(
-        Enum(Role, name="class_role", native_enum=False), default=Role.STUDENT, nullable=False
-    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
@@ -133,7 +113,9 @@ class ClassSubject(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
-    subject_id: Mapped[int] = mapped_column(ForeignKey("subjects.id", ondelete="CASCADE"), index=True)
+    subject_id: Mapped[int] = mapped_column(
+        ForeignKey("subjects.id", ondelete="CASCADE"), index=True
+    )
 
 
 class TimetableEntry(TimestampMixin, Base):
@@ -160,7 +142,9 @@ class LessonSession(TimestampMixin, Base):
     __tablename__ = "lesson_sessions"
     __table_args__ = (
         Index("ix_lesson_class_start", "class_id", "starts_at"),
-        UniqueConstraint("class_id", "subject_id", "starts_at", name="uq_lesson_class_subject_start"),
+        UniqueConstraint(
+            "class_id", "subject_id", "starts_at", name="uq_lesson_class_subject_start"
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -185,8 +169,6 @@ class DailyReport(TimestampMixin, Base):
         nullable=False,
     )
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Homework(TimestampMixin, Base):
@@ -206,8 +188,6 @@ class Homework(TimestampMixin, Base):
         nullable=False,
     )
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     subject: Mapped["Subject"] = relationship()
@@ -215,7 +195,9 @@ class Homework(TimestampMixin, Base):
 
 class Exam(TimestampMixin, Base):
     __tablename__ = "exams"
-    __table_args__ = (Index("ix_exam_class_status_scheduled", "class_id", "status", "scheduled_at"),)
+    __table_args__ = (
+        Index("ix_exam_class_status_scheduled", "class_id", "status", "scheduled_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
@@ -230,8 +212,6 @@ class Exam(TimestampMixin, Base):
         nullable=False,
     )
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     subject: Mapped["Subject"] = relationship()
@@ -245,7 +225,9 @@ class HomeworkSubmission(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    homework_id: Mapped[int] = mapped_column(ForeignKey("homeworks.id", ondelete="CASCADE"), index=True)
+    homework_id: Mapped[int] = mapped_column(
+        ForeignKey("homeworks.id", ondelete="CASCADE"), index=True
+    )
     student_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     text: Mapped[str | None] = mapped_column(Text)
     file_id: Mapped[str | None] = mapped_column(String(255))
@@ -278,7 +260,9 @@ class Grade(TimestampMixin, Base):
 class Attendance(TimestampMixin, Base):
     __tablename__ = "attendance"
     __table_args__ = (
-        UniqueConstraint("class_id", "student_id", "attendance_date", name="uq_attendance_student_day"),
+        UniqueConstraint(
+            "class_id", "student_id", "attendance_date", name="uq_attendance_student_day"
+        ),
         Index("ix_attendance_class_date", "class_id", "attendance_date"),
         Index("ix_attendance_student_date", "student_id", "attendance_date"),
     )
@@ -324,36 +308,6 @@ class PollResponse(Base):
     option_id: Mapped[int | None] = mapped_column(ForeignKey("poll_options.id", ondelete="CASCADE"))
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     answer_text: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-
-class ApprovalEvent(Base):
-    __tablename__ = "approval_events"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    entity_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
-    entity_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    action: Mapped[str] = mapped_column(String(32), nullable=False)
-    note: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class AuditLog(Base):
-    __tablename__ = "audit_logs"
-    __table_args__ = (Index("ix_audit_class_created", "class_id", "created_at"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    school_id: Mapped[int] = mapped_column(ForeignKey("schools.id", ondelete="CASCADE"), index=True)
-    class_id: Mapped[int | None] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"))
-    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
-    action: Mapped[str] = mapped_column(String(64), nullable=False)
-    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    entity_id: Mapped[int | None] = mapped_column(Integer)
-    before_data: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    after_data: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -450,9 +404,7 @@ class TelegramOutbox(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     target_type: Mapped[str] = mapped_column(String(16), nullable=False)
     target_chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    class_id: Mapped[int | None] = mapped_column(
-        ForeignKey("classes.id", ondelete="CASCADE")
-    )
+    class_id: Mapped[int | None] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"))
     entity_type: Mapped[str | None] = mapped_column(String(24))
     entity_id: Mapped[int | None] = mapped_column(Integer)
     expected_record_status: Mapped[str | None] = mapped_column(String(32))
@@ -461,14 +413,10 @@ class TelegramOutbox(Base):
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
     parse_mode: Mapped[str | None] = mapped_column(String(16), default="HTML")
-    disable_notification: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
+    disable_notification: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     action_type: Mapped[str | None] = mapped_column(String(24))
     action_id: Mapped[int | None] = mapped_column(Integer)
-    scheduled_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[OutboxStatus] = mapped_column(
         Enum(OutboxStatus, name="telegram_outbox_status", native_enum=False),
         default=OutboxStatus.PENDING,

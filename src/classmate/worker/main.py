@@ -305,12 +305,7 @@ async def process_outbox_once(bot: Bot) -> int:
 
         try:
             reply_markup = None
-            if payload["action_type"] and payload["action_id"] is not None:
-                from classmate.bot.keyboards import approval_keyboard
-
-                reply_markup = approval_keyboard(
-                    payload["action_type"], payload["action_id"]
-                )
+            reply_markup = None
             await bot.send_message(
                 chat_id=payload["target_chat_id"],
                 text=payload["text"],
