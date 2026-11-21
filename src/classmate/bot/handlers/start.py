@@ -14,7 +14,11 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession) 
     await state.clear()
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     name = escape(message.from_user.first_name or "")
+    username = escape(f"@{message.from_user.username}" if message.from_user.username else "بدون نام کاربری")
     await message.answer(
-        f"سلام {name} گرامی 👋\n\nبه <b>ClassMate 2</b> خوش آمدید.\n\nاز «🔑 ورود با کد دعوت» وارد کلاس شوید و محتوای آموزشی خود را در «🎓 بخش آموزشی» ببینید.\n\n🆘 پشتیبانی: @Mizanup",
+        f"• درود بیکران 🕊 {name}، به ربات ClassMatePro خوش آمدید.\n\n"
+        f"📇 - در اینجا میتونید امور مدرسه رو به صورت حرفهای و پیشرفته مدیریت کنید.\n\n"
+        f"• آیدی شما : {username}\n\n"
+        "🪎جهت ادامه دستور مورد نظر رو از پنل زیر وارد کنید:",
         reply_markup=await menu_for(session, user),
     )

@@ -243,6 +243,14 @@ async def cb_home(callback: CallbackQuery, state: FSMContext, session: AsyncSess
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("edu:notice:"))
+async def cb_education_notice(callback: CallbackQuery) -> None:
+    await callback.answer(
+        "⌯ این دکمه ها فعلا جهت نمایش هستند و فعالشون نکردیم❗",
+        show_alert=True,
+    )
+
+
 @router.callback_query(F.data.startswith("menu:"))
 async def cb_menu(callback: CallbackQuery, session: AsyncSession) -> None:
     if callback.message is None:

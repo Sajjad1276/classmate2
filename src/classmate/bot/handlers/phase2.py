@@ -376,9 +376,7 @@ async def phase2_cancel(callback: CallbackQuery, state: FSMContext, session: Asy
 async def support(message: Message, session: AsyncSession) -> None:
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
     await message.answer(
-        "🆘 <b>مرکز پشتیبانی ClassMate 2</b>\n\n"
-        "برای گزارش خطا، پیشنهاد قابلیت یا دریافت راهنمایی، با سازنده ربات در ارتباط باشید:\n\n"
-        "👤 سازنده: <b>@Mizanup</b>\n"
-        "📌 لطفاً هنگام ارسال مشکل، نام کلاس و شرح کوتاه مسئله را هم بنویسید.",
+        "🚧 ⌯ اگه کارت به مشکل خورده یا پیشنهادی برای ارتقا ربات داری میتونی از طریق آیدی زیر با ما در ارتباط باشی🤝🏻\n"
+        "🗣️ @Mizanup",
         reply_markup=await menu_for(session, user),
     )

@@ -39,20 +39,20 @@ def education_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="📚 تکالیف", callback_data="menu:homework"),
-                InlineKeyboardButton(text="📝 امتحانات", callback_data="menu:exams"),
+                InlineKeyboardButton(text="📚 تکالیف", callback_data="edu:notice:homework"),
+                InlineKeyboardButton(text="📝 امتحانات", callback_data="edu:notice:exams"),
             ],
             [
-                InlineKeyboardButton(text="📅 برنامه", callback_data="menu:week"),
-                InlineKeyboardButton(text="📋 گزارش امروز", callback_data="menu:today"),
+                InlineKeyboardButton(text="📅 برنامه", callback_data="edu:notice:week"),
+                InlineKeyboardButton(text="📋 گزارش امروز", callback_data="edu:notice:today"),
             ],
             [
-                InlineKeyboardButton(text="📤 ارسال تکلیف", callback_data="menu:submit"),
-                InlineKeyboardButton(text="📊 نمرات", callback_data="menu:grades"),
+                InlineKeyboardButton(text="📤 ارسال تکلیف", callback_data="edu:notice:submit"),
+                InlineKeyboardButton(text="📊 نمرات", callback_data="edu:notice:grades"),
             ],
             [
-                InlineKeyboardButton(text="🟢 حضور", callback_data="menu:attendance"),
-                InlineKeyboardButton(text="🗳 نظرسنجی", callback_data="menu:polls"),
+                InlineKeyboardButton(text="🟢 حضور", callback_data="edu:notice:attendance"),
+                InlineKeyboardButton(text="🗳 نظرسنجی", callback_data="edu:notice:polls"),
             ],
             [InlineKeyboardButton(text="« بازگشت", callback_data="ui:home", style="danger")],
         ]
