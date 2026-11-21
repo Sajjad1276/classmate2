@@ -220,7 +220,11 @@ async def btn_join(message: Message, state: FSMContext) -> None:
 @router.message(F.text.in_({"❓ راهنما", "❓ راهنمای استفاده", "راهنما"}))
 async def btn_help(message: Message, session: AsyncSession) -> None:
     await message.answer(
-        "<b>راهنمای ClassMate 2</b>\n\nاز «🔑 ورود با کد دعوت» عضو کلاس شوید. در «🎓 بخش آموزشی» تکالیف، امتحانات، برنامه، نمرات، حضور، نظرسنجی و ارسال تکلیف را ببینید.\n\nپشتیبانی: <b>@Mizanup</b>",
+        "<b>راهنمای ClassMate 2</b>\n\n"
+        "از «🔑 ورود با کد دعوت» عضو کلاس شوید.\n"
+        "گزینه‌های «🎓 بخش آموزشی» فعلاً فقط جهت نمایش هستند و فعال نشده‌اند.\n\n"
+        "🚧 ⌯ اگه کارت به مشکل خورده یا پیشنهادی برای ارتقا ربات داری میتونی از طریق آیدی زیر با ما در ارتباط باشی🤝🏻\n"
+        "🗣️ @Mizanup",
         reply_markup=await menu_for(
             session,
             await get_user(session, message.from_user, private=message.chat.type == "private"),
