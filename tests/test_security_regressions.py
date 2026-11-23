@@ -753,7 +753,7 @@ async def test_legacy_record_commands_require_class_manager(
     from classmate.bot.handlers import records
 
     async def fake_context(_message, _session, class_id=None):
-        return (world["class"], world["year"], world["school"]), world["student"]
+        return (world["class"], world["school"]), world["student"]
 
     monkeypatch.setattr(records, "_ctx", fake_context)
     replies = []

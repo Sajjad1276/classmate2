@@ -58,8 +58,7 @@ async def _job_is_deliverable(session, job: ReminderJob) -> bool:
     """Revalidate the record, class and recipient immediately before delivery."""
     class_group = await session.scalar(
         select(ClassGroup)
-        .join(ClassGroup.academic_year_id == AcademicYear.id)
-        .join(School, AcademicYear.school_id == School.id)
+                .join(School, ClassGroup.school_id == School.id)
         .where(
             ClassGroup.id == job.class_id,
             ClassGroup.is_active.is_(True),
@@ -187,8 +186,7 @@ async def _outbox_is_deliverable(session, row: TelegramOutbox) -> bool:
     if row.target_type == "group":
         result = await session.execute(
             select(ClassGroup.id)
-            .join(ClassGroup.academic_year_id == AcademicYear.id)
-            .join(School, AcademicYear.school_id == School.id)
+                        .join(School, ClassGroup.school_id == School.id)
             .where(
                 ClassGroup.id == row.class_id,
                 ClassGroup.group_chat_id == row.target_chat_id,
@@ -217,8 +215,7 @@ async def _outbox_is_deliverable(session, row: TelegramOutbox) -> bool:
     membership_id = await session.scalar(
         select(ClassMembership.id)
         .join(ClassGroup, ClassMembership.class_id == ClassGroup.id)
-        .join(ClassGroup.academic_year_id == AcademicYear.id)
-        .join(School, AcademicYear.school_id == School.id)
+                .join(School, ClassGroup.school_id == School.id)
         .where(
             ClassMembership.class_id == row.class_id,
             ClassMembership.user_id == user.id,

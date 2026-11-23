@@ -30,8 +30,7 @@ async def join_class(message: Message, session: AsyncSession) -> None:
         return
     cls = await session.scalar(
         select(ClassGroup)
-        .join(ClassGroup.academic_year_id == AcademicYear.id)
-        .join(School, AcademicYear.school_id == School.id)
+                .join(School, ClassGroup.school_id == School.id)
         .where(
             ClassGroup.member_join_code_hash == hash_code(code),
             ClassGroup.is_active.is_(True),
@@ -59,8 +58,7 @@ async def list_classes(message: Message, session: AsyncSession) -> None:
     rows = (
         await session.execute(
             select(ClassGroup, School)
-            .join(ClassGroup.academic_year_id == AcademicYear.id)
-            .join(School, AcademicYear.school_id == School.id)
+                        .join(School, ClassGroup.school_id == School.id)
             .join(
                 ClassMembership,
                 (ClassMembership.class_id == ClassGroup.id)

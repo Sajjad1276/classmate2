@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.core.enums import RecordStatus
-from classmate.db.models import AcademicYear, Attendance, ClassGroup, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, School, Subject, User
+from classmate.db.models import Attendance, ClassGroup, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, School, Subject, User
 from classmate.services.permissions import is_class_manager, user_can_access_class
 
 
