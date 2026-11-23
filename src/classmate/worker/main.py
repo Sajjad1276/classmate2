@@ -11,7 +11,7 @@ from sqlalchemy import select, update
 from classmate.core.config import get_settings
 from classmate.core.enums import EntityType, OutboxStatus, RecordStatus, ReminderStatus
 from classmate.core.logging import configure_logging
-from classmate.db.models import AcademicYear, ClassGroup, ClassMembership, Exam, DailyReport, Homework, ReminderJob, School, TelegramOutbox, User
+from classmate.db.models import ClassGroup, ClassMembership, Exam, DailyReport, Homework, ReminderJob, School, TelegramOutbox, User
 from classmate.db.session import SessionFactory
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ async def _job_is_deliverable(session, job: ReminderJob) -> bool:
     """Revalidate the record, class and recipient immediately before delivery."""
     class_group = await session.scalar(
         select(ClassGroup)
-        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(ClassGroup.academic_year_id == AcademicYear.id)
         .join(School, AcademicYear.school_id == School.id)
         .where(
             ClassGroup.id == job.class_id,
@@ -187,7 +187,7 @@ async def _outbox_is_deliverable(session, row: TelegramOutbox) -> bool:
     if row.target_type == "group":
         result = await session.execute(
             select(ClassGroup.id)
-            .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+            .join(ClassGroup.academic_year_id == AcademicYear.id)
             .join(School, AcademicYear.school_id == School.id)
             .where(
                 ClassGroup.id == row.class_id,
@@ -217,7 +217,7 @@ async def _outbox_is_deliverable(session, row: TelegramOutbox) -> bool:
     membership_id = await session.scalar(
         select(ClassMembership.id)
         .join(ClassGroup, ClassMembership.class_id == ClassGroup.id)
-        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(ClassGroup.academic_year_id == AcademicYear.id)
         .join(School, AcademicYear.school_id == School.id)
         .where(
             ClassMembership.class_id == row.class_id,

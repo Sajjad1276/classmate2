@@ -113,8 +113,7 @@ async def student_attendance(
                     & ClassMembership.is_active.is_(True),
                 )
                 .join(ClassGroup, Attendance.class_id == ClassGroup.id)
-                .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
-                .join(School, AcademicYear.school_id == School.id)
+                .join(School, ClassGroup.school_id == School.id)
                 .join(User, Attendance.student_id == User.id)
                 .where(
                     Attendance.student_id == student_id,

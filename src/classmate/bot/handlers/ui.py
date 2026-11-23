@@ -25,7 +25,6 @@ from classmate.bot.keyboards import (
 )
 from classmate.bot.states import JoinForm
 from classmate.db.models import (
-    AcademicYear,
     ClassGroup,
     ClassMembership,
     School,
@@ -76,8 +75,7 @@ async def classes_for_user(session: AsyncSession, user: User) -> list[tuple[int,
     rows = (
         await session.execute(
             select(ClassGroup, School)
-            .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
-            .join(School, AcademicYear.school_id == School.id)
+            .join(School, ClassGroup.school_id == School.id)
             .join(
                 ClassMembership,
                 (ClassMembership.class_id == ClassGroup.id)
@@ -123,7 +121,7 @@ async def run_view(
     if ctx is None:
         await _result(target, "کلاس موردنظر پیدا نشد.")
         return
-    cls, _, school = ctx
+    cls, school = ctx
     today = datetime.now(ZoneInfo(school.timezone)).date()
     if action == "homework":
         rows = await list_homework(session, class_id)

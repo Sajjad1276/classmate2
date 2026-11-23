@@ -8,7 +8,7 @@ from aiogram.types import Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.bot.handlers.ui import get_user
-from classmate.db.models import AcademicYear, ClassGroup, ClassMembership, School
+from classmate.db.models import ClassGroup, ClassMembership, School
 from classmate.services.permissions import activate_student_membership, hash_code
 
 router = Router(name="onboarding")
@@ -30,7 +30,7 @@ async def join_class(message: Message, session: AsyncSession) -> None:
         return
     cls = await session.scalar(
         select(ClassGroup)
-        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(ClassGroup.academic_year_id == AcademicYear.id)
         .join(School, AcademicYear.school_id == School.id)
         .where(
             ClassGroup.member_join_code_hash == hash_code(code),
@@ -59,7 +59,7 @@ async def list_classes(message: Message, session: AsyncSession) -> None:
     rows = (
         await session.execute(
             select(ClassGroup, School)
-            .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+            .join(ClassGroup.academic_year_id == AcademicYear.id)
             .join(School, AcademicYear.school_id == School.id)
             .join(
                 ClassMembership,

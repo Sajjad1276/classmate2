@@ -209,7 +209,7 @@ async def test_archiving_homework_cancels_pending_reminders(world):
 async def test_homework_rejects_subject_not_linked_to_class(world):
     session = world["session"]
     second_class = ClassGroup(
-        academic_year_id=world["year"].id,
+        school_id=world["school"].id,
         name="دهم ۱۰۲",
         grade="دهم",
         section="۱۰۲",
@@ -382,7 +382,7 @@ async def test_group_link_cannot_overwrite_existing_class_or_group_binding(world
         )
 
     other = ClassGroup(
-        academic_year_id=world["year"].id,
+        school_id=world["school"].id,
         name="دهم ۱۰۲",
         grade="دهم",
         section="۱۰۲",
