@@ -341,6 +341,7 @@ async def approve_record(
     school_id: int,
     class_id: int,
     timezone_name: str,
+    management_override: bool = False,
 ) -> tuple[bool, str]:
     model_map = {
         EntityType.HOMEWORK.value: Homework,
@@ -359,7 +360,9 @@ async def approve_record(
     if record.created_by == actor_id:
         return False, "ثبت‌کننده اجازه تأیید درخواست خودش را ندارد."
     actor = await session.get(User, actor_id)
-    if actor is None or not await can_approve(session, actor, class_id):
+    if actor is None or not actor.is_active:
+        return False, "حساب تأییدکننده فعال نیست."
+    if not management_override and not await can_approve(session, actor, class_id):
         return False, "شما اجازه تأیید موارد این کلاس را ندارید."
 
     record.status = RecordStatus.APPROVED
@@ -403,6 +406,7 @@ async def reject_record(
     school_id: int,
     class_id: int,
     note: str = "",
+    management_override: bool = False,
 ) -> tuple[bool, str]:
     model_map = {
         EntityType.HOMEWORK.value: Homework,
@@ -419,7 +423,9 @@ async def reject_record(
     if record.status not in {RecordStatus.PENDING, RecordStatus.REVISION_REQUESTED}:
         return False, "این مورد در وضعیت قابل رد نیست."
     actor = await session.get(User, actor_id)
-    if actor is None or not await can_approve(session, actor, class_id):
+    if actor is None or not actor.is_active:
+        return False, "حساب ردکننده فعال نیست."
+    if not management_override and not await can_approve(session, actor, class_id):
         return False, "شما اجازه رد موارد این کلاس را ندارید."
 
     record.status = RecordStatus.REJECTED

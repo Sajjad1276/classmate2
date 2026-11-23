@@ -903,11 +903,132 @@ async def subject_create_name(message: Message, state: FSMContext, session: Asyn
     await message.answer(f"✅ درس «{escape(subject.name)}» ثبت شد.", reply_markup=MAIN_KEYBOARD)
 
 
-@router.callback_query(F.data.startswith("admin:class:open:"))
-async def _noop_duplicate_class_open(callback: CallbackQuery) -> None:
-    # Router registration is intentionally singular; this sentinel is never expected to match
-    # because the real handler above is registered first.
+@router.callback_query(F.data.startswith("admin:subjects:class:"))
+async def class_subjects_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _allowed(session, callback.from_user.id, "subjects:read"):
+        await _reject_callback(callback)
+        return
+    try:
+        class_id = int((callback.data or "").rsplit(":", maxsplit=1)[-1])
+    except ValueError:
+        await callback.answer("کلاس معتبر نیست.", show_alert=True)
+        return
+    cls = await session.get(ClassGroup, class_id)
+    if cls is None:
+        await callback.answer("کلاس پیدا نشد.", show_alert=True)
+        return
+    linked = list((await session.execute(
+        select(ClassSubject, Subject)
+        .join(Subject, ClassSubject.subject_id == Subject.id)
+        .where(ClassSubject.class_id == class_id)
+        .order_by(Subject.name)
+    )).all())
+    rows = [
+        [InlineKeyboardButton(text=f"حذف · {subject.name[:28]}", callback_data=f"admin:class:subject:remove:{class_id}:{subject.id}")]
+        for link, subject in linked[:25]
+    ]
+    rows.append([InlineKeyboardButton(text="➕ اتصال درس موجود", callback_data=f"admin:class:subjects:add:{class_id}")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به کلاس", callback_data=f"admin:class:open:{class_id}")])
+    lines = [f"📚 <b>دروس کلاس {escape(cls.name)}</b>", ""]
+    lines.extend(f"• {escape(subject.name)}" for _, subject in linked)
+    if not linked:
+        lines.append("هنوز درسی به کلاس متصل نشده است.")
     await callback.answer()
+    await _edit_panel(callback, "\n".join(lines), rows)
+
+
+@router.callback_query(F.data.startswith("admin:class:subjects:add:"))
+async def class_subject_add_list(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _allowed(session, callback.from_user.id, "subjects:write"):
+        await _reject_callback(callback)
+        return
+    try:
+        class_id = int((callback.data or "").rsplit(":", maxsplit=1)[-1])
+    except ValueError:
+        await callback.answer("کلاس معتبر نیست.", show_alert=True)
+        return
+    cls = await session.get(ClassGroup, class_id)
+    if cls is None:
+        await callback.answer("کلاس پیدا نشد.", show_alert=True)
+        return
+    assigned_ids = set((await session.scalars(
+        select(ClassSubject.subject_id).where(ClassSubject.class_id == class_id)
+    )).all())
+    subjects = await list_school_subjects(session, cls.school_id)
+    rows = [
+        [InlineKeyboardButton(text=subject.name[:36], callback_data=f"admin:class:subject:assign:{class_id}:{subject.id}")]
+        for subject in subjects if subject.id not in assigned_ids
+    ]
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data=f"admin:subjects:class:{class_id}")])
+    await callback.answer()
+    await _edit_panel(callback, f"➕ <b>انتخاب درس برای {escape(cls.name)}</b>", rows)
+
+
+@router.callback_query(F.data.startswith("admin:class:subject:assign:"))
+async def class_subject_assign_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _allowed(session, callback.from_user.id, "subjects:write"):
+        await _reject_callback(callback)
+        return
+    parts = (callback.data or "").split(":")
+    try:
+        class_id, subject_id = int(parts[4]), int(parts[5])
+        await assign_subject(session, actor=callback.from_user.id, class_id=class_id, subject_id=subject_id)
+    except (ValueError, IndexError) as exc:
+        await callback.answer(str(exc) or "اتصال درس انجام نشد.", show_alert=True)
+        return
+    await callback.answer("درس به کلاس متصل شد.")
+    if callback.message:
+        callback.data = f"admin:subjects:class:{class_id}"
+        await class_subjects_callback(callback, session)
+
+
+@router.callback_query(F.data.startswith("admin:class:subject:remove:"))
+async def class_subject_remove_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _allowed(session, callback.from_user.id, "subjects:write"):
+        await _reject_callback(callback)
+        return
+    parts = (callback.data or "").split(":")
+    try:
+        class_id, subject_id = int(parts[4]), int(parts[5])
+        await unassign_subject(session, actor=callback.from_user.id, class_id=class_id, subject_id=subject_id)
+    except (ValueError, IndexError) as exc:
+        await callback.answer(str(exc) or "برداشتن درس انجام نشد.", show_alert=True)
+        return
+    await callback.answer("درس از کلاس برداشته شد.")
+    if callback.message:
+        callback.data = f"admin:subjects:class:{class_id}"
+        await class_subjects_callback(callback, session)
+
+
+@router.callback_query(F.data.startswith("admin:subject:open:"))
+async def subject_open_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _allowed(session, callback.from_user.id, "subjects:read"):
+        await _reject_callback(callback)
+        return
+    try:
+        subject_id = int((callback.data or "").rsplit(":", maxsplit=1)[-1])
+    except ValueError:
+        await callback.answer("شناسه درس معتبر نیست.", show_alert=True)
+        return
+    subject = await session.get(Subject, subject_id)
+    if subject is None:
+        await callback.answer("درس پیدا نشد.", show_alert=True)
+        return
+    links = list((await session.execute(
+        select(ClassGroup.id, ClassGroup.name, School.name)
+        .join(ClassSubject, ClassSubject.class_id == ClassGroup.id)
+        .join(School, ClassGroup.school_id == School.id)
+        .where(ClassSubject.subject_id == subject_id)
+        .order_by(School.name, ClassGroup.name)
+    )).all())
+    lines = [f"📚 <b>{escape(subject.name)}</b>", f"مدرسه: {subject.school_id}", "", "کلاس‌های متصل:"]
+    lines.extend(f"• {escape(row[2])} / {escape(row[1])} · #{row[0]}" for row in links)
+    if not links:
+        lines.append("این درس هنوز به کلاسی متصل نشده است.")
+    await callback.answer()
+    await _edit_panel(callback, "\n".join(lines), [[InlineKeyboardButton(text="⬅️ بازگشت به دروس", callback_data=f"admin:subjects:school:{subject.school_id}")]])
+
+
 
 
 @router.callback_query(F.data.startswith("admin:members:class:"))
@@ -1013,6 +1134,82 @@ async def member_join_code(callback: CallbackQuery, session: AsyncSession) -> No
         )
 
 
+
+
+@router.callback_query(F.data == "admin:users:search")
+async def user_search_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _allowed(session, callback.from_user.id, "members:read"):
+        await _reject_callback(callback)
+        return
+    await state.clear()
+    await state.set_state(AdminWizard.dashboard_setting)
+    await callback.answer()
+    if callback.message:
+        await callback.message.edit_text("نام، نام کاربری یا Telegram ID کاربر را وارد کنید:")
+
+
+@router.message(AdminWizard.dashboard_setting, F.text)
+async def user_search_input(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _allowed(session, message.from_user.id, "members:read"):
+        await state.clear()
+        await _reject_message(message)
+        return
+    query = (message.text or "").strip()
+    stmt = select(User).order_by(User.created_at.desc())
+    if query.isdecimal():
+        stmt = stmt.where(User.telegram_id == int(query))
+    else:
+        stmt = stmt.where(
+            func.lower(User.full_name).contains(query.casefold())
+            | func.lower(User.username).contains(query.lstrip("@").casefold())
+        )
+    users = list((await session.scalars(stmt.limit(30))).all())
+    await state.clear()
+    lines = ["👥 <b>نتیجه جستجوی کاربران</b>", ""]
+    rows = []
+    for user in users:
+        status = "فعال" if user.is_active else "غیرفعال"
+        lines.append(f"• {escape(user.full_name)} · {user.telegram_id} · {status}")
+        rows.append([InlineKeyboardButton(text=f"{user.full_name[:28]} · {status}", callback_data=f"admin:user:toggle:{user.id}")])
+    if not users:
+        lines.append("کاربری پیدا نشد.")
+    await _panel(message, "\n".join(lines), rows)
+
+
+@router.callback_query(F.data.startswith("admin:user:toggle:"))
+async def user_toggle_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _allowed(session, callback.from_user.id, "members:write"):
+        await _reject_callback(callback)
+        return
+    try:
+        user_id = int((callback.data or "").rsplit(":", maxsplit=1)[-1])
+    except ValueError:
+        await callback.answer("شناسه کاربر معتبر نیست.", show_alert=True)
+        return
+    user = await session.get(User, user_id, with_for_update=True)
+    if user is None:
+        await callback.answer("کاربر پیدا نشد.", show_alert=True)
+        return
+    if user.telegram_id == callback.from_user.id:
+        await callback.answer("نمی‌توانید حساب خودتان را از این بخش غیرفعال کنید.", show_alert=True)
+        return
+    before = {"is_active": user.is_active}
+    user.is_active = not user.is_active
+    await audit_action(
+        session, actor_telegram_id=callback.from_user.id,
+        action="user.activate" if user.is_active else "user.suspend",
+        target_type="user", target_id=user.id,
+        before=before, after={"is_active": user.is_active},
+    )
+    await callback.answer("وضعیت کاربر تغییر کرد.")
+    if callback.message:
+        await callback.message.edit_text(
+            f"✅ وضعیت {escape(user.full_name)} اکنون {'فعال' if user.is_active else 'غیرفعال'} است.",
+            reply_markup=panel_keyboard([[InlineKeyboardButton(text="🔎 جستجوی دوباره", callback_data="admin:users:search")]]),
+        )
+
+
+
 @router.message(F.text == "👥 کاربران و اعضا")
 async def users_message(message: Message, session: AsyncSession) -> None:
     if not await _allowed(session, message.from_user.id, "members:read"):
@@ -1024,7 +1221,10 @@ async def users_message(message: Message, session: AsyncSession) -> None:
     await _panel(
         message,
         "\n".join(lines),
-        [[InlineKeyboardButton(text="🏫 مدارس و کلاس‌ها", callback_data="admin:schools")]],
+        [
+            [InlineKeyboardButton(text="🔎 جستجوی کاربر", callback_data="admin:users:search")],
+            [InlineKeyboardButton(text="🏫 مدارس و کلاس‌ها", callback_data="admin:schools")],
+        ],
     )
 
 
