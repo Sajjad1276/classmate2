@@ -109,7 +109,7 @@ async def _render_dashboard(message: Message, session: AsyncSession, user) -> No
         for class_id, _class_name, _school_name in classes:
             context = await get_class_with_school(session, class_id)
             if context is not None:
-                timezone_by_class[class_id] = context[2].timezone
+                timezone_by_class[class_id] = context[1].timezone
         first_timezone = timezone_by_class.get(classes[0][0], "Asia/Tehran")
         local_today = datetime.now(ZoneInfo(first_timezone)).date()
     except Exception:
@@ -255,7 +255,7 @@ async def _render_calendar(
     if context is None:
         await message.answer("کلاس موردنظر پیدا نشد.")
         return
-    timezone_name = context[2].timezone
+    timezone_name = context[1].timezone
     local_today = datetime.now(ZoneInfo(timezone_name)).date()
     timetable, exams, homeworks = await calendar_rows(
         session, class_id, local_today, timezone_name=timezone_name

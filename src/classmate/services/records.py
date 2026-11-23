@@ -1,18 +1,31 @@
-"""Read-only educational record queries. Writers live outside ClassMate 2."""
+"""Homework, exam, report creation and approval."""
 
-from datetime import date
-from sqlalchemy import select
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from classmate.core.enums import RecordStatus
+
+from classmate.core.enums import EntityType, OutboxStatus, RecordStatus
 from classmate.db.models import (
-    AcademicYear,
+    ApprovalEvent,
+    AuditLog,
     ClassGroup,
+    ClassSubject,
     DailyReport,
     Exam,
     Homework,
+    LessonSession,
+    ReminderJob,
+    TelegramOutbox,
     School,
     Subject,
+    TimetableEntry,
+    User,
 )
+from classmate.domain.dates import persian_weekday
+from classmate.services.notifications import schedule_approved_record_reminders
+from classmate.services.permissions import can_approve, get_class_with_school
 
 
 def normalize_subject_name(value: str) -> str:
@@ -24,9 +37,8 @@ def normalize_subject_name(value: str) -> str:
 async def get_group_context(session: AsyncSession, telegram_chat_id: int):
     return (
         await session.execute(
-            select(ClassGroup, AcademicYear, School)
-            .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
-            .join(School, AcademicYear.school_id == School.id)
+            select(ClassGroup, School)
+            .join(School, ClassGroup.school_id == School.id)
             .where(
                 ClassGroup.group_chat_id == telegram_chat_id,
                 ClassGroup.is_active.is_(True),
@@ -34,6 +46,411 @@ async def get_group_context(session: AsyncSession, telegram_chat_id: int):
             )
         )
     ).first()
+
+
+async def get_subject(
+    session: AsyncSession, class_id: int, school_id: int, subject_name: str
+) -> Subject | None:
+    normalized = normalize_subject_name(subject_name)
+    return await session.scalar(
+        select(Subject)
+        .join(ClassSubject, ClassSubject.subject_id == Subject.id)
+        .where(
+            ClassSubject.class_id == class_id,
+            Subject.school_id == school_id,
+            Subject.normalized_name == normalized,
+        )
+    )
+
+
+async def add_subject(
+    session: AsyncSession, class_id: int, school_id: int, name: str
+) -> Subject:
+    actual_school_id = await session.scalar(
+        select(ClassGroup.school_id)
+        .join(School, ClassGroup.school_id == School.id)
+        .where(
+            ClassGroup.id == class_id,
+            ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
+        )
+    )
+    if actual_school_id != school_id:
+        raise ValueError("مدرسهٔ درس با مدرسهٔ کلاس مطابقت ندارد یا غیرفعال است.")
+    normalized = normalize_subject_name(name)
+    if not normalized:
+        raise ValueError("نام درس نمی‌تواند خالی باشد.")
+    subject = await session.scalar(
+        select(Subject).where(
+            Subject.school_id == school_id,
+            Subject.normalized_name == normalized,
+        )
+    )
+    if subject is None:
+        subject = Subject(school_id=school_id, name=name.strip(), normalized_name=normalized)
+        session.add(subject)
+        await session.flush()
+    link = await session.scalar(
+        select(ClassSubject).where(
+            ClassSubject.class_id == class_id, ClassSubject.subject_id == subject.id
+        )
+    )
+    if link is None:
+        session.add(ClassSubject(class_id=class_id, subject_id=subject.id))
+    await session.flush()
+    return subject
+
+
+async def _validate_subject_for_class(
+    session: AsyncSession, class_id: int, subject: Subject
+) -> None:
+    row = await session.execute(
+        select(ClassSubject.id, Subject.school_id, ClassGroup.school_id)
+        .join(Subject, ClassSubject.subject_id == Subject.id)
+        .join(ClassGroup, ClassSubject.class_id == ClassGroup.id)
+        .join(School, ClassGroup.school_id == School.id)
+        .where(
+            ClassSubject.class_id == class_id,
+            ClassSubject.subject_id == subject.id,
+            ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
+        )
+    )
+    linked = row.first()
+    if linked is None or linked[1] != linked[2]:
+        raise ValueError("درس انتخاب‌شده متعلق به این کلاس نیست.")
+
+
+async def get_or_create_next_lesson(
+    session: AsyncSession,
+    class_id: int,
+    subject_id: int,
+    timezone_name: str,
+) -> LessonSession | None:
+    zone = ZoneInfo(timezone_name)
+    now = datetime.now(zone)
+    entries = (
+        await session.execute(
+            select(TimetableEntry).where(
+                TimetableEntry.class_id == class_id,
+                TimetableEntry.subject_id == subject_id,
+            )
+        )
+    ).scalars().all()
+
+    occurrences: list[tuple[datetime, datetime | None]] = []
+    for entry in entries:
+        for offset in range(15):
+            lesson_date = now.date() + timedelta(days=offset)
+            if persian_weekday(lesson_date) != entry.weekday:
+                continue
+            if entry.valid_from and lesson_date < entry.valid_from:
+                continue
+            if entry.valid_until and lesson_date > entry.valid_until:
+                continue
+            lesson_start = datetime.combine(
+                lesson_date, entry.starts_at or time(8, 0), tzinfo=zone
+            )
+            if lesson_start <= now:
+                continue
+            lesson_end = (
+                datetime.combine(lesson_date, entry.ends_at, tzinfo=zone)
+                if entry.ends_at
+                else None
+            )
+            occurrences.append((lesson_start, lesson_end))
+            break
+
+    if not occurrences:
+        return None
+
+    starts_at, ends_at = min(occurrences, key=lambda item: item[0])
+    existing = await session.scalar(
+        select(LessonSession).where(
+            LessonSession.class_id == class_id,
+            LessonSession.subject_id == subject_id,
+            LessonSession.starts_at == starts_at,
+        )
+    )
+    if existing is not None:
+        return existing
+
+    lesson = LessonSession(
+        class_id=class_id,
+        subject_id=subject_id,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        status="scheduled",
+    )
+    session.add(lesson)
+    await session.flush()
+    return lesson
+
+
+
+
+async def _require_active_creator(session: AsyncSession, user_id: int) -> None:
+    active_user = await session.scalar(
+        select(User.id).where(User.id == user_id, User.is_active.is_(True))
+    )
+    if active_user is None:
+        raise PermissionError("حساب ثبت‌کننده فعال نیست.")
+
+
+async def create_homework(
+    session: AsyncSession,
+    class_id: int,
+    subject: Subject,
+    title: str,
+    description: str,
+    due_on: date | None,
+    created_by: int,
+    due_session_id: int | None = None,
+) -> Homework:
+    await _validate_subject_for_class(session, class_id, subject)
+    await _require_active_creator(session, created_by)
+    if due_session_id is not None:
+        lesson_id = await session.scalar(
+            select(LessonSession.id).where(
+                LessonSession.id == due_session_id,
+                LessonSession.class_id == class_id,
+            )
+        )
+        if lesson_id is None:
+            raise ValueError("جلسه انتخاب‌شده متعلق به این کلاس نیست.")
+    if not title.strip():
+        raise ValueError("عنوان تکلیف نمی‌تواند خالی باشد.")
+    record = Homework(
+        class_id=class_id,
+        subject_id=subject.id,
+        title=title.strip()[:180],
+        description=description.strip(),
+        due_on=due_on,
+        due_session_id=due_session_id,
+        created_by=created_by,
+        status=RecordStatus.PENDING,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def create_exam(
+    session: AsyncSession,
+    class_id: int,
+    subject: Subject,
+    title: str,
+    scope: str,
+    exam_type: str,
+    scheduled_at: datetime,
+    created_by: int,
+) -> Exam:
+    await _validate_subject_for_class(session, class_id, subject)
+    await _require_active_creator(session, created_by)
+    if not title.strip():
+        raise ValueError("عنوان امتحان نمی‌تواند خالی باشد.")
+    if scheduled_at.tzinfo is None:
+        raise ValueError("Exam datetime must be timezone-aware")
+    record = Exam(
+        class_id=class_id,
+        subject_id=subject.id,
+        title=title.strip()[:180],
+        scope=scope.strip(),
+        exam_type=exam_type,
+        scheduled_at=scheduled_at,
+        created_by=created_by,
+        status=RecordStatus.PENDING,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def create_daily_report(
+    session: AsyncSession,
+    class_id: int,
+    report_date: date,
+    body: str,
+    created_by: int,
+    title: str | None = None,
+) -> DailyReport:
+    if await get_class_with_school(session, class_id) is None:
+        raise ValueError("کلاس یا مدرسه فعال نیست.")
+    await _require_active_creator(session, created_by)
+    if not body.strip():
+        raise ValueError("متن گزارش نمی‌تواند خالی باشد.")
+    record = DailyReport(
+        class_id=class_id,
+        report_date=report_date,
+        title=(title or "گزارش روزانه")[:180],
+        body=body.strip(),
+        created_by=created_by,
+        status=RecordStatus.PENDING,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def audit(
+    session: AsyncSession,
+    school_id: int,
+    class_id: int | None,
+    actor_id: int,
+    action: str,
+    entity_type: str,
+    entity_id: int,
+    after_data: dict | None = None,
+    before_data: dict | None = None,
+) -> None:
+    session.add(
+        AuditLog(
+            school_id=school_id,
+            class_id=class_id,
+            actor_id=actor_id,
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            before_data=before_data,
+            after_data=after_data,
+        )
+    )
+
+
+async def _cancel_pending_outbox_for_record(
+    session: AsyncSession, entity_type: str, entity_id: int
+) -> None:
+    await session.execute(
+        update(TelegramOutbox)
+        .where(
+            TelegramOutbox.entity_type == entity_type,
+            TelegramOutbox.entity_id == entity_id,
+            TelegramOutbox.status.in_(
+                [OutboxStatus.PENDING, OutboxStatus.RETRY, OutboxStatus.PROCESSING]
+            ),
+        )
+        .values(status=OutboxStatus.CANCELLED, locked_at=None)
+    )
+
+
+async def approve_record(
+    session: AsyncSession,
+    entity_type: str,
+    entity_id: int,
+    actor_id: int,
+    school_id: int,
+    class_id: int,
+    timezone_name: str,
+    management_override: bool = False,
+) -> tuple[bool, str]:
+    model_map = {
+        EntityType.HOMEWORK.value: Homework,
+        EntityType.EXAM.value: Exam,
+        EntityType.REPORT.value: DailyReport,
+    }
+    model = model_map.get(entity_type)
+    if model is None:
+        return False, "نوع اطلاعات پشتیبانی نمی‌شود."
+
+    record = await session.get(model, entity_id, with_for_update=True)
+    if record is None or record.class_id != class_id:
+        return False, "اطلاعات موردنظر پیدا نشد."
+    if record.status != RecordStatus.PENDING:
+        return False, f"این مورد در وضعیت {record.status} است و قابل تأیید نیست."
+    if record.created_by == actor_id:
+        return False, "ثبت‌کننده اجازه تأیید درخواست خودش را ندارد."
+    actor = await session.get(User, actor_id)
+    if actor is None or not actor.is_active:
+        return False, "حساب تأییدکننده فعال نیست."
+    if not management_override and not await can_approve(session, actor, class_id):
+        return False, "شما اجازه تأیید موارد این کلاس را ندارید."
+
+    record.status = RecordStatus.APPROVED
+    await _cancel_pending_outbox_for_record(session, entity_type, entity_id)
+    record.approved_by = actor_id
+    record.approved_at = datetime.now(ZoneInfo(timezone_name))
+    session.add(
+        ApprovalEvent(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            actor_id=actor_id,
+            action="APPROVED",
+        )
+    )
+    await audit(
+        session,
+        school_id,
+        class_id,
+        actor_id,
+        "approve",
+        entity_type,
+        entity_id,
+        {"status": "APPROVED"},
+    )
+    await session.flush()
+
+    if entity_type in {EntityType.HOMEWORK.value, EntityType.EXAM.value}:
+        class_group = await session.get(ClassGroup, class_id)
+        if class_group:
+            await schedule_approved_record_reminders(
+                session, class_group, record, entity_type, timezone_name
+            )
+    return True, "اطلاعات تأیید شد."
+
+
+async def reject_record(
+    session: AsyncSession,
+    entity_type: str,
+    entity_id: int,
+    actor_id: int,
+    school_id: int,
+    class_id: int,
+    note: str = "",
+    management_override: bool = False,
+) -> tuple[bool, str]:
+    model_map = {
+        EntityType.HOMEWORK.value: Homework,
+        EntityType.EXAM.value: Exam,
+        EntityType.REPORT.value: DailyReport,
+    }
+    model = model_map.get(entity_type)
+    if model is None:
+        return False, "نوع اطلاعات پشتیبانی نمی‌شود."
+
+    record = await session.get(model, entity_id, with_for_update=True)
+    if record is None or record.class_id != class_id:
+        return False, "اطلاعات موردنظر پیدا نشد."
+    if record.status not in {RecordStatus.PENDING, RecordStatus.REVISION_REQUESTED}:
+        return False, "این مورد در وضعیت قابل رد نیست."
+    actor = await session.get(User, actor_id)
+    if actor is None or not actor.is_active:
+        return False, "حساب ردکننده فعال نیست."
+    if not management_override and not await can_approve(session, actor, class_id):
+        return False, "شما اجازه رد موارد این کلاس را ندارید."
+
+    record.status = RecordStatus.REJECTED
+    await _cancel_pending_outbox_for_record(session, entity_type, entity_id)
+    session.add(
+        ApprovalEvent(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            actor_id=actor_id,
+            action="REJECTED",
+            note=note or None,
+        )
+    )
+    await audit(
+        session,
+        school_id,
+        class_id,
+        actor_id,
+        "reject",
+        entity_type,
+        entity_id,
+        {"status": "REJECTED", "note": note},
+    )
+    await session.flush()
+    return True, "درخواست رد شد."
 
 
 async def list_homework(
@@ -77,7 +494,42 @@ async def list_reports(session: AsyncSession, class_id: int, report_date: date):
                 )
                 .order_by(DailyReport.created_at.desc())
             )
-        )
-        .scalars()
-        .all()
+        ).scalars().all()
     )
+
+
+async def list_pending_records(session: AsyncSession, class_id: int):
+    pending = []
+    for label, model in (
+        (EntityType.HOMEWORK.value, Homework),
+        (EntityType.EXAM.value, Exam),
+        (EntityType.REPORT.value, DailyReport),
+    ):
+        records = (
+            await session.execute(
+                select(model)
+                .where(model.class_id == class_id, model.status == RecordStatus.PENDING)
+                .order_by(model.created_at.asc())
+                .limit(15)
+            )
+        ).scalars().all()
+        pending.extend((label, record) for record in records)
+    return pending
+
+
+async def set_reminders_cancelled(
+    session: AsyncSession, entity_type: str, entity_id: int
+) -> None:
+    from classmate.core.enums import ReminderStatus
+
+    jobs = (
+        await session.execute(
+            select(ReminderJob).where(
+                ReminderJob.entity_type == entity_type,
+                ReminderJob.entity_id == entity_id,
+                ReminderJob.status.in_([ReminderStatus.PENDING, ReminderStatus.RETRY]),
+            )
+        )
+    ).scalars().all()
+    for job in jobs:
+        job.status = ReminderStatus.CANCELLED

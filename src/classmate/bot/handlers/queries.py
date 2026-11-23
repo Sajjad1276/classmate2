@@ -76,7 +76,7 @@ async def cmd_exams(message: Message, session: AsyncSession) -> None:
     if ctx is None:
         await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
         return
-    class_group, _, school = ctx
+    class_group, school = ctx
     rows = await list_exams(session, class_group.id)
     if not rows:
         await message.answer("امتحان پیش‌رویی برای این کلاس ثبت نشده است.")
@@ -98,7 +98,7 @@ async def cmd_today(message: Message, session: AsyncSession) -> None:
     if ctx is None:
         await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
         return
-    class_group, _, school = ctx
+    class_group, school = ctx
     today = datetime.now(ZoneInfo(school.timezone)).date()
     reports = await list_reports(session, class_group.id, today)
     if not reports:
@@ -117,7 +117,7 @@ async def cmd_week(message: Message, session: AsyncSession) -> None:
     if ctx is None:
         await message.answer("کلاس موردنظر پیدا نشد. لطفاً دوباره تلاش کنید.")
         return
-    class_group, _, school = ctx
+    class_group, school = ctx
     local_today = datetime.now(ZoneInfo(school.timezone)).date()
     entries = (
         await session.execute(

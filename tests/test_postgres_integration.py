@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from classmate.core.enums import OutboxStatus, Role
 from classmate.db.base import Base
-from classmate.db.models import AcademicYear, ClassGroup, ClassMembership, School, TelegramOutbox, User
+from classmate.db.models import ClassGroup, ClassMembership, School, TelegramOutbox, User
 from classmate.services.outbox import enqueue_telegram_message
 
 
@@ -32,15 +32,8 @@ async def test_postgres_outbox_is_durable_and_claims_respect_skip_locked():
                 school = School(name="PostgreSQL integration", timezone="UTC")
                 session.add(school)
                 await session.flush()
-                year = AcademicYear(
-                    school_id=school.id,
-                    name="integration",
-                    is_current=True,
-                )
-                session.add(year)
-                await session.flush()
                 class_group = ClassGroup(
-                    academic_year_id=year.id,
+                    school_id=school.id,
                     name="integration class",
                     grade="test",
                     section="1",

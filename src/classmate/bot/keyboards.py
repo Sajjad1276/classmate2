@@ -72,6 +72,34 @@ def education_result_kb() -> InlineKeyboardMarkup:
     )
 
 
+
+
+def group_panel(*, class_id: int, class_name: str = "") -> InlineKeyboardMarkup:
+    cid = class_id
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📚 تکالیف من", callback_data=f"g:view:homework:{cid}"),
+                InlineKeyboardButton(text="📝 تقویم امتحانات", callback_data=f"g:view:exams:{cid}"),
+            ],
+            [
+                InlineKeyboardButton(text="📋 گزارش‌های امروز", callback_data=f"g:view:today:{cid}"),
+                InlineKeyboardButton(text="📅 برنامه هفتگی", callback_data=f"g:view:week:{cid}"),
+            ],
+            [
+                InlineKeyboardButton(text="➕ تکلیف جدید", callback_data=f"g:new:hw:{cid}"),
+                InlineKeyboardButton(text="➕ امتحان جدید", callback_data=f"g:new:exam:{cid}"),
+                InlineKeyboardButton(text="➕ گزارش جدید", callback_data=f"g:new:report:{cid}"),
+            ],
+            [
+                InlineKeyboardButton(text="🕓 در انتظار بررسی", callback_data=f"g:view:pending:{cid}"),
+                InlineKeyboardButton(text="🔄 به‌روزرسانی پنل", callback_data=f"g:panel:{cid}"),
+            ],
+        ]
+    )
+
+
+
 def class_picker(
     classes: list[tuple[int, str, str]], *, action: str, page: int = 0, page_size: int = 8
 ) -> InlineKeyboardMarkup:

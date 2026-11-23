@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from classmate.core.enums import Role
 from classmate.db.base import Base
 from classmate.db.models import (
-    AcademicYear,
     ClassGroup,
     ClassMembership,
     ClassSubject,
@@ -42,17 +41,13 @@ async def session(engine):
 
 @pytest.fixture
 async def world(session: AsyncSession):
-    """Minimal school → year → class → subject + three users."""
+    """Minimal school → class → subject + three users."""
     school = School(name="دبیرستان آزمون", timezone="Asia/Tehran")
     session.add(school)
     await session.flush()
 
-    year = AcademicYear(school_id=school.id, name="۱۴۰۵-۱۴۰۶", is_current=True)
-    session.add(year)
-    await session.flush()
-
     cls = ClassGroup(
-        academic_year_id=year.id,
+        school_id=school.id,
         name="دهم ۱۰۱",
         grade="دهم",
         section="۱۰۱",
@@ -84,7 +79,6 @@ async def world(session: AsyncSession):
     return {
         "session": session,
         "school": school,
-        "year": year,
         "class": cls,
         "subject": subject,
         "student": student,

@@ -11,7 +11,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    bot_token: str = Field(..., alias="BOT_TOKEN")
+    bot_token: str = Field("", alias="BOT_TOKEN")
+    admin_bot_token: str = Field("", alias="TELEGRAM_BOT_TOKEN")
     database_url: str = Field(
         "postgresql+asyncpg://classmate:classmate@localhost:5432/classmate",
         alias="DATABASE_URL",
