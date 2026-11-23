@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.core.enums import Role, RecordStatus
+from classmate.core.enums import OutboxStatus, Role, RecordStatus
 from classmate.db.models import (
     AdminAccount,
     AdminAuditEvent,
@@ -26,7 +26,7 @@ from classmate.db.models import (
     Grade,
     Homework,
     HomeworkSubmission,
-    OutboxStatus,
+    Poll,
     School,
     SchoolMembership,
     Subject,
@@ -141,7 +141,7 @@ async def dashboard_stats(session: AsyncSession) -> dict[str, Any]:
     counts["reports"] = await session.scalar(select(func.count(DailyReport.id))) or 0
     counts["attendance"] = await session.scalar(select(func.count(Attendance.id))) or 0
     counts["grades"] = await session.scalar(select(func.count(Grade.id))) or 0
-    counts["polls"] = await session.scalar(select(func.count(Poll.id))) or 0 if False else 0
+    counts["polls"] = await session.scalar(select(func.count(Poll.id))) or 0
     counts["files"] = await session.scalar(
         select(func.count(HomeworkSubmission.id)).where(HomeworkSubmission.file_id.is_not(None))
     ) or 0
