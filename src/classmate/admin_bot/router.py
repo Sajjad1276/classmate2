@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import datetime, timezone
 from html import escape
 
@@ -28,7 +27,6 @@ from classmate.admin_bot.access import (
     admin_account,
     has_admin_permission,
     is_bootstrap_owner,
-    require_admin_permission,
 )
 from classmate.admin_bot.services import (
     DEFAULT_DASHBOARD_CARDS,
@@ -57,9 +55,7 @@ from classmate.admin_bot.services import (
     unassign_subject,
 )
 from classmate.core.config import get_settings
-from classmate.core.enums import EntityType, RecordStatus
 from classmate.db.models import (
-    AdminAccount,
     Announcement,
     ClassGroup,
     ClassMembership,
@@ -69,7 +65,6 @@ from classmate.db.models import (
     Homework,
     School,
     Subject,
-    TelegramOutbox,
     User,
 )
 from classmate.domain.dates import jalali_datetime
@@ -86,6 +81,8 @@ class AdminWizard(StatesGroup):
     class_name = State()
     class_grade = State()
     class_section = State()
+    class_edit_name = State()
+    class_edit_grade = State()
     subject_name = State()
     admin_telegram_id = State()
     admin_display_name = State()
@@ -357,7 +354,21 @@ async def dashboard_toggle_callback(callback: CallbackQuery, session: AsyncSessi
         visible.add(key)
     pref.visible_cards = [item for item in DEFAULT_DASHBOARD_CARDS if item in visible]
     await callback.answer("تنظیم ذخیره شد.")
-    await dashboard_settings_callback(callback, session)
+    labels = {
+        "users": "کاربران", "growth": "رشد کاربران", "schools": "مدارس",
+        "classes": "کلاس‌ها", "groups": "گروه‌ها", "content": "محتوا و صف بررسی",
+        "files": "فایل‌ها", "delivery": "ارسال پیام", "health": "سلامت سرور",
+    }
+    rows = [
+        [InlineKeyboardButton(text=f"{'✅' if item in pref.visible_cards else '▫️'} {labels[item]}",
+                              callback_data=f"admin:dashboard:toggle:{item}")]
+        for item in DEFAULT_DASHBOARD_CARDS
+    ]
+    await _edit_panel(
+        callback,
+        "⚙️ <b>شخصی‌سازی داشبورد</b>\nکارت‌های موردنظر را روشن یا خاموش کنید.",
+        rows,
+    )
 
 
 async def show_schools(message: Message, session: AsyncSession, actor: int, notice: str | None = None) -> None:
@@ -544,7 +555,24 @@ async def school_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.answer(str(exc), show_alert=True)
         return
     await callback.answer("وضعیت مدرسه تغییر کرد.")
-    await school_open(callback.model_copy(update={"data": f"admin:school:open:{school_id}"}), session)
+    updated = await session.get(School, school_id)
+    classes = await list_classes(session, school_id=school_id)
+    connected = sum(1 for cls, _school in classes if cls.group_chat_id is not None)
+    status = "فعال" if updated and updated.is_active else "غیرفعال"
+    body = (
+        f"🏫 <b>{escape(updated.name if updated else '')}</b>\\n"
+        f"شناسه: {school_id}\\nوضعیت: {status}\\n"
+        f"کلاس‌ها: {len(classes)} · گروه متصل: {connected}"
+    )
+    await _edit_panel(
+        callback,
+        body,
+        [
+            [InlineKeyboardButton(text="🏷 مشاهده کلاس‌ها", callback_data=f"admin:classes:school:{school_id}")],
+            [InlineKeyboardButton(text="✏️ تغییر نام", callback_data=f"admin:school:rename:{school_id}")],
+            [InlineKeyboardButton(text="⬅️ فهرست مدارس", callback_data="admin:schools")],
+        ],
+    )
 
 
 async def show_classes(message: Message, session: AsyncSession, actor: int, school_id: int | None = None) -> None:
@@ -719,14 +747,141 @@ async def class_open(callback: CallbackQuery, session: AsyncSession) -> None:
         f"اعضای فعال: {member_count} · درس‌های متصل: {subject_count}"
     )
     rows = [
+        [InlineKeyboardButton(text="✏️ ویرایش نام کلاس", callback_data=f"admin:class:rename:{class_id}")],
+        [InlineKeyboardButton(text="🎓 تغییر پایه", callback_data=f"admin:class:grade:{class_id}")],
         [InlineKeyboardButton(text="👥 اعضای کلاس", callback_data=f"admin:members:class:{class_id}")],
         [InlineKeyboardButton(text="📚 دروس کلاس", callback_data=f"admin:subjects:class:{class_id}")],
+        [InlineKeyboardButton(text="⏸ غیرفعال‌سازی کلاس" if cls.is_active else "✅ فعال‌سازی کلاس",
+                              callback_data=f"admin:class:toggle:{class_id}")],
         [InlineKeyboardButton(text="🔗 صدور کد اتصال گروه", callback_data=f"admin:class:groupcode:{class_id}")],
         [InlineKeyboardButton(text="✂️ قطع اتصال گروه", callback_data=f"admin:class:disconnect:{class_id}")],
         [InlineKeyboardButton(text="⬅️ فهرست کلاس‌ها", callback_data=f"admin:classes:school:{cls.school_id}")],
     ]
     await callback.answer()
     await _edit_panel(callback, body, rows)
+
+
+@router.callback_query(F.data.startswith("admin:class:rename:"))
+async def class_rename_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _allowed(session, callback.from_user.id, "classes:write"):
+        await _reject_callback(callback)
+        return
+    try:
+        class_id = int((callback.data or "").rsplit(":", maxsplit=1)[-1])
+    except ValueError:
+        await callback.answer("شناسه کلاس معتبر نیست.", show_alert=True)
+        return
+    cls = await session.get(ClassGroup, class_id)
+    if cls is None:
+        await callback.answer("کلاس پیدا نشد.", show_alert=True)
+        return
+    await state.clear()
+    await state.update_data(edit_class_id=class_id)
+    await state.set_state(AdminWizard.class_edit_name)
+    await callback.answer()
+    if callback.message:
+        await callback.message.edit_text(f"نام جدید کلاس «{escape(cls.name)}» را وارد کنید:")
+
+
+@router.message(AdminWizard.class_edit_name, F.text)
+async def class_rename_input(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _allowed(session, message.from_user.id, "classes:write"):
+        await state.clear()
+        await _reject_message(message)
+        return
+    data = await state.get_data()
+    name = " ".join((message.text or "").split())
+    if not 2 <= len(name) <= 80:
+        await message.answer("نام کلاس باید بین ۲ تا ۸۰ نویسه باشد.")
+        return
+    class_id = int(data["edit_class_id"])
+    cls = await session.get(ClassGroup, class_id, with_for_update=True)
+    if cls is None:
+        await state.clear()
+        await message.answer("کلاس پیدا نشد.")
+        return
+    before = {"name": cls.name}
+    cls.name = name
+    await audit_action(
+        session, actor_telegram_id=message.from_user.id, action="class.rename",
+        target_type="class", target_id=class_id, before=before, after={"name": name},
+    )
+    await state.clear()
+    await message.answer(f"✅ نام کلاس به «{escape(name)}» تغییر کرد.", reply_markup=MAIN_KEYBOARD)
+
+
+@router.callback_query(F.data.startswith("admin:class:grade:"))
+async def class_grade_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if not await _allowed(session, callback.from_user.id, "classes:write"):
+        await _reject_callback(callback)
+        return
+    try:
+        class_id = int((callback.data or "").rsplit(":", maxsplit=1)[-1])
+    except ValueError:
+        await callback.answer("شناسه کلاس معتبر نیست.", show_alert=True)
+        return
+    cls = await session.get(ClassGroup, class_id)
+    if cls is None:
+        await callback.answer("کلاس پیدا نشد.", show_alert=True)
+        return
+    await state.clear()
+    await state.update_data(edit_class_id=class_id)
+    await state.set_state(AdminWizard.class_edit_grade)
+    await callback.answer()
+    if callback.message:
+        await callback.message.edit_text(f"پایه جدید کلاس «{escape(cls.name)}» را وارد کنید:")
+
+
+@router.message(AdminWizard.class_edit_grade, F.text)
+async def class_grade_edit_input(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _allowed(session, message.from_user.id, "classes:write"):
+        await state.clear()
+        await _reject_message(message)
+        return
+    data = await state.get_data()
+    grade = " ".join((message.text or "").split())
+    if not 1 <= len(grade) <= 32:
+        await message.answer("پایه باید بین ۱ تا ۳۲ نویسه باشد.")
+        return
+    class_id = int(data["edit_class_id"])
+    cls = await session.get(ClassGroup, class_id, with_for_update=True)
+    if cls is None:
+        await state.clear()
+        await message.answer("کلاس پیدا نشد.")
+        return
+    before = {"grade": cls.grade}
+    cls.grade = grade
+    await audit_action(
+        session, actor_telegram_id=message.from_user.id, action="class.change_grade",
+        target_type="class", target_id=class_id, before=before, after={"grade": grade},
+    )
+    await state.clear()
+    await message.answer(f"✅ پایه کلاس به «{escape(grade)}» تغییر کرد.", reply_markup=MAIN_KEYBOARD)
+
+
+@router.callback_query(F.data.startswith("admin:class:toggle:"))
+async def class_toggle_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _allowed(session, callback.from_user.id, "classes:write"):
+        await _reject_callback(callback)
+        return
+    try:
+        class_id = int((callback.data or "").rsplit(":", maxsplit=1)[-1])
+        cls = await session.get(ClassGroup, class_id)
+        if cls is None:
+            raise ValueError("کلاس پیدا نشد.")
+        updated = await set_class_active(
+            session, actor=callback.from_user.id, class_id=class_id, active=not cls.is_active
+        )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+        return
+    await callback.answer("وضعیت کلاس تغییر کرد.")
+    await _edit_panel(
+        callback,
+        f"وضعیت کلاس «{escape(updated.name)}» به {'فعال' if updated.is_active else 'غیرفعال'} تغییر کرد.",
+        [[InlineKeyboardButton(text="⬅️ بازگشت به کلاس", callback_data=f"admin:class:open:{class_id}")]],
+    )
+
 
 
 @router.callback_query(F.data.startswith("admin:class:groupcode:"))
