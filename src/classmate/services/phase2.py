@@ -7,22 +7,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.core.enums import RecordStatus
-from classmate.db.models import (
-    AcademicYear,
-    Attendance,
-    ClassGroup,
-    ClassMembership,
-    Grade,
-    Homework,
-    HomeworkSubmission,
-    Poll,
-    PollOption,
-    PollResponse,
-    School,
-    Subject,
-    User,
-)
-from classmate.services.permissions import user_can_access_class
+from classmate.db.models import AcademicYear, Attendance, ClassGroup, ClassMembership, Grade, Homework, HomeworkSubmission, Poll, PollOption, PollResponse, School, Subject, User
+from classmate.services.permissions import is_class_manager, user_can_access_class
+
+
 
 
 def validate_grade_values(score: float, max_score: float) -> None:
@@ -34,27 +22,14 @@ def validate_grade_values(score: float, max_score: float) -> None:
 
 
 async def approved_homeworks_for_student(session: AsyncSession, class_id: int):
-    return list(
-        (
-            await session.execute(
-                select(Homework, Subject)
-                .join(Subject, Homework.subject_id == Subject.id)
-                .where(Homework.class_id == class_id, Homework.status == RecordStatus.APPROVED)
-                .order_by(Homework.due_on.asc().nullslast(), Homework.created_at.desc())
-                .limit(30)
-            )
-        ).all()
-    )
+    return list((await session.execute(
+        select(Homework, Subject).join(Subject, Homework.subject_id == Subject.id)
+        .where(Homework.class_id == class_id, Homework.status == RecordStatus.APPROVED)
+        .order_by(Homework.due_on.asc().nullslast(), Homework.created_at.desc()).limit(30)
+    )).all())
 
 
-async def save_submission(
-    session: AsyncSession,
-    homework_id: int,
-    student_id: int,
-    text: str | None = None,
-    file_id: str | None = None,
-    file_type: str | None = None,
-) -> HomeworkSubmission:
+async def save_submission(session: AsyncSession, homework_id: int, student_id: int, text: str | None = None, file_id: str | None = None, file_type: str | None = None) -> HomeworkSubmission:
     homework = await session.scalar(
         select(Homework).where(Homework.id == homework_id).with_for_update()
     )
@@ -77,20 +52,9 @@ async def save_submission(
         or not await user_can_access_class(session, student, homework.class_id)
     ):
         raise PermissionError("فقط عضو فعال کلاس می‌تواند پاسخ تکلیف را ارسال کند.")
-    item = await session.scalar(
-        select(HomeworkSubmission).where(
-            HomeworkSubmission.homework_id == homework_id,
-            HomeworkSubmission.student_id == student_id,
-        )
-    )
+    item = await session.scalar(select(HomeworkSubmission).where(HomeworkSubmission.homework_id == homework_id, HomeworkSubmission.student_id == student_id))
     if item is None:
-        item = HomeworkSubmission(
-            homework_id=homework_id,
-            student_id=student_id,
-            text=text,
-            file_id=file_id,
-            file_type=file_type,
-        )
+        item = HomeworkSubmission(homework_id=homework_id, student_id=student_id, text=text, file_id=file_id, file_type=file_type)
         session.add(item)
     else:
         item.text, item.file_id, item.file_type = text, file_id, file_type
@@ -100,7 +64,9 @@ async def save_submission(
     return item
 
 
-async def student_grades(session: AsyncSession, student_id: int, class_ids: list[int]):
+async def student_grades(
+    session: AsyncSession, student_id: int, class_ids: list[int]
+):
     if not class_ids:
         return []
     return list(
@@ -115,8 +81,7 @@ async def student_grades(session: AsyncSession, student_id: int, class_ids: list
                     & ClassMembership.is_active.is_(True),
                 )
                 .join(ClassGroup, Grade.class_id == ClassGroup.id)
-                .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
-                .join(School, AcademicYear.school_id == School.id)
+                .join(School, ClassGroup.school_id == School.id)
                 .join(User, Grade.student_id == User.id)
                 .where(
                     Grade.student_id == student_id,
@@ -132,7 +97,9 @@ async def student_grades(session: AsyncSession, student_id: int, class_ids: list
     )
 
 
-async def student_attendance(session: AsyncSession, student_id: int, class_ids: list[int]):
+async def student_attendance(
+    session: AsyncSession, student_id: int, class_ids: list[int]
+):
     if not class_ids:
         return []
     return list(
@@ -159,51 +126,134 @@ async def student_attendance(session: AsyncSession, student_id: int, class_ids: 
                 .order_by(Attendance.attendance_date.desc())
                 .limit(60)
             )
-        )
-        .scalars()
-        .all()
+        ).scalars().all()
     )
+
+
+
+
+async def save_attendance(
+    session: AsyncSession,
+    *,
+    class_id: int,
+    student_id: int,
+    attendance_date: date,
+    status: str,
+    marked_by: int,
+    note: str | None = None,
+) -> Attendance:
+    """Atomically insert or update one attendance mark per student and date."""
+    if status not in {"present", "absent", "late", "excused"}:
+        raise ValueError("وضعیت حضور‌وغیاب معتبر نیست.")
+
+    student = await session.get(User, student_id)
+    if (
+        student is None
+        or not student.is_active
+        or not await user_can_access_class(session, student, class_id)
+        or await session.scalar(
+            select(ClassMembership.id).where(
+                ClassMembership.class_id == class_id,
+                ClassMembership.user_id == student_id,
+                ClassMembership.is_active.is_(True),
+            )
+        ) is None
+    ):
+        raise PermissionError("دانش‌آموز عضو فعال این کلاس نیست.")
+
+    manager = await session.get(User, marked_by)
+    if manager is None or not await is_class_manager(session, manager, class_id):
+        raise PermissionError("فقط مدیر کلاس می‌تواند حضور‌وغیاب ثبت کند.")
+
+    values = {
+        "class_id": class_id,
+        "student_id": student_id,
+        "attendance_date": attendance_date,
+        "status": status,
+        "note": note,
+        "marked_by": marked_by,
+    }
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        statement = (
+            pg_insert(Attendance)
+            .values(**values)
+            .on_conflict_do_update(
+                index_elements=[
+                    Attendance.class_id,
+                    Attendance.student_id,
+                    Attendance.attendance_date,
+                ],
+                set_={"status": status, "note": note, "marked_by": marked_by},
+            )
+            .returning(Attendance.id)
+        )
+        attendance_id = await session.scalar(statement)
+    elif dialect == "sqlite":
+        statement = (
+            sqlite_insert(Attendance)
+            .values(**values)
+            .on_conflict_do_update(
+                index_elements=[
+                    Attendance.class_id,
+                    Attendance.student_id,
+                    Attendance.attendance_date,
+                ],
+                set_={"status": status, "note": note, "marked_by": marked_by},
+            )
+            .returning(Attendance.id)
+        )
+        attendance_id = await session.scalar(statement)
+    else:
+        existing = await session.scalar(
+            select(Attendance)
+            .where(
+                Attendance.class_id == class_id,
+                Attendance.student_id == student_id,
+                Attendance.attendance_date == attendance_date,
+            )
+            .with_for_update()
+        )
+        if existing is None:
+            existing = Attendance(**values)
+            session.add(existing)
+            await session.flush()
+        else:
+            existing.status = status
+            existing.note = note
+            existing.marked_by = marked_by
+        attendance_id = existing.id
+
+    await session.flush()
+    attendance = await session.get(Attendance, attendance_id)
+    if attendance is None:
+        raise RuntimeError("ثبت حضور‌وغیاب انجام نشد.")
+    await session.refresh(attendance)
+    return attendance
 
 
 async def active_polls(session: AsyncSession, class_ids: list[int]):
     if not class_ids:
         return []
     now = datetime.now(timezone.utc)
-    return list(
-        (
-            await session.execute(
-                select(Poll)
-                .where(
-                    Poll.class_id.in_(class_ids),
-                    Poll.is_active.is_(True),
-                    (Poll.closes_at.is_(None)) | (Poll.closes_at > now),
-                )
-                .order_by(Poll.created_at.desc())
-                .limit(20)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    return list((await session.execute(
+        select(Poll).where(
+            Poll.class_id.in_(class_ids),
+            Poll.is_active.is_(True),
+            (Poll.closes_at.is_(None)) | (Poll.closes_at > now),
+        ).order_by(Poll.created_at.desc()).limit(20)
+    )).scalars().all())
 
 
 async def poll_options(session: AsyncSession, poll_id: int):
-    return list(
-        (
-            await session.execute(
-                select(PollOption)
-                .where(PollOption.poll_id == poll_id)
-                .order_by(PollOption.position)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    return list((await session.execute(select(PollOption).where(PollOption.poll_id == poll_id).order_by(PollOption.position))).scalars().all())
 
 
 async def answer_poll(session: AsyncSession, poll_id: int, user_id: int, option_id: int) -> bool:
     """Validate poll access and upsert one response atomically."""
-    poll = await session.scalar(select(Poll).where(Poll.id == poll_id).with_for_update())
+    poll = await session.scalar(
+        select(Poll).where(Poll.id == poll_id).with_for_update()
+    )
     if poll is None or not poll.is_active:
         return False
     now = datetime.now(timezone.utc)
@@ -246,34 +296,22 @@ async def answer_poll(session: AsyncSession, poll_id: int, user_id: int, option_
     }
     dialect = session.get_bind().dialect.name
     if dialect == "postgresql":
-        statement = (
-            pg_insert(PollResponse)
-            .values(**values)
-            .on_conflict_do_update(
-                index_elements=[PollResponse.poll_id, PollResponse.user_id],
-                set_={"option_id": option_id, "created_at": now},
-            )
+        statement = pg_insert(PollResponse).values(**values).on_conflict_do_update(
+            index_elements=[PollResponse.poll_id, PollResponse.user_id],
+            set_={"option_id": option_id, "created_at": now},
         )
         await session.execute(statement)
     elif dialect == "sqlite":
-        statement = (
-            sqlite_insert(PollResponse)
-            .values(**values)
-            .on_conflict_do_update(
-                index_elements=[PollResponse.poll_id, PollResponse.user_id],
-                set_={"option_id": option_id, "created_at": now},
-            )
+        statement = sqlite_insert(PollResponse).values(**values).on_conflict_do_update(
+            index_elements=[PollResponse.poll_id, PollResponse.user_id],
+            set_={"option_id": option_id, "created_at": now},
         )
         await session.execute(statement)
     else:
-        existing = await session.scalar(
-            select(PollResponse)
-            .where(
-                PollResponse.poll_id == poll_id,
-                PollResponse.user_id == user_id,
-            )
-            .with_for_update()
-        )
+        existing = await session.scalar(select(PollResponse).where(
+            PollResponse.poll_id == poll_id,
+            PollResponse.user_id == user_id,
+        ).with_for_update())
         if existing is None:
             session.add(PollResponse(**values))
         else:
@@ -282,19 +320,15 @@ async def answer_poll(session: AsyncSession, poll_id: int, user_id: int, option_
     await session.flush()
     return True
 
-
 async def poll_result(session: AsyncSession, poll_id: int):
-    return list(
-        (
-            await session.execute(
-                select(PollOption.label, func.count(PollResponse.id))
-                .outerjoin(
-                    PollResponse,
-                    (PollResponse.option_id == PollOption.id) & (PollResponse.poll_id == poll_id),
-                )
-                .where(PollOption.poll_id == poll_id)
-                .group_by(PollOption.id, PollOption.label)
-                .order_by(PollOption.position)
-            )
-        ).all()
-    )
+    return list((await session.execute(
+        select(PollOption.label, func.count(PollResponse.id))
+        .outerjoin(
+            PollResponse,
+            (PollResponse.option_id == PollOption.id)
+            & (PollResponse.poll_id == poll_id),
+        )
+        .where(PollOption.poll_id == poll_id)
+        .group_by(PollOption.id, PollOption.label)
+        .order_by(PollOption.position)
+    )).all())
