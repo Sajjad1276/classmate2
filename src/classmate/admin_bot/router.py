@@ -98,8 +98,8 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
         [KeyboardButton(text="🏷 کلاس‌ها"), KeyboardButton(text="📚 دروس")],
         [KeyboardButton(text="👥 کاربران و اعضا"), KeyboardButton(text="🔗 گروه‌های کلاس")],
         [KeyboardButton(text="📥 صف بررسی"), KeyboardButton(text="📣 اطلاعیه‌ها")],
-        [KeyboardButton(text="📈 گزارش و سوابق"), KeyboardButton(text="🛡 مدیران")],
-        [KeyboardButton(text="⚙️ تنظیمات داشبورد")],
+        [KeyboardButton(text="📈 گزارش و سوابق"), KeyboardButton(text="📡 وضعیت سامانه")],
+        [KeyboardButton(text="🛡 مدیران"), KeyboardButton(text="⚙️ تنظیمات داشبورد")],
     ],
     resize_keyboard=True,
     is_persistent=True,
@@ -1132,9 +1132,11 @@ async def class_subject_assign_callback(callback: CallbackQuery, session: AsyncS
         await callback.answer(str(exc) or "اتصال درس انجام نشد.", show_alert=True)
         return
     await callback.answer("درس به کلاس متصل شد.")
-    if callback.message:
-        callback.data = f"admin:subjects:class:{class_id}"
-        await class_subjects_callback(callback, session)
+    await _edit_panel(
+        callback,
+        "✅ درس به کلاس متصل شد.",
+        [[InlineKeyboardButton(text="⬅️ بازگشت به دروس کلاس", callback_data=f"admin:subjects:class:{class_id}")]],
+    )
 
 
 @router.callback_query(F.data.startswith("admin:class:subject:remove:"))
@@ -1150,9 +1152,11 @@ async def class_subject_remove_callback(callback: CallbackQuery, session: AsyncS
         await callback.answer(str(exc) or "برداشتن درس انجام نشد.", show_alert=True)
         return
     await callback.answer("درس از کلاس برداشته شد.")
-    if callback.message:
-        callback.data = f"admin:subjects:class:{class_id}"
-        await class_subjects_callback(callback, session)
+    await _edit_panel(
+        callback,
+        "✅ درس از کلاس برداشته شد.",
+        [[InlineKeyboardButton(text="⬅️ بازگشت به دروس کلاس", callback_data=f"admin:subjects:class:{class_id}")]],
+    )
 
 
 @router.callback_query(F.data.startswith("admin:subject:open:"))
