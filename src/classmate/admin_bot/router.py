@@ -49,6 +49,7 @@ from classmate.admin_bot.services import (
     list_recent_audit,
     list_schools,
     list_school_subjects,
+    rename_school,
     set_class_member_active,
     set_class_active,
     set_school_active,
@@ -69,6 +70,7 @@ from classmate.db.models import (
 )
 from classmate.domain.dates import jalali_datetime
 from classmate.services.outbox import enqueue_telegram_message
+from classmate.services.permissions import make_code, hash_code, code_expiry
 from classmate.services.records import approve_record, reject_record
 
 router = Router(name="management-control-center")
@@ -1272,7 +1274,6 @@ async def member_join_code(callback: CallbackQuery, session: AsyncSession) -> No
         if not cls.is_active or cls.group_chat_id is None:
             raise ValueError("کلاس تا اتصال گروه فعال نمی‌شود؛ ابتدا گروه را متصل کنید.")
         raw = make_code(8)
-        from classmate.services.permissions import hash_code, code_expiry
         cls.member_join_code_hash = hash_code(raw)
         cls.member_join_code_expires_at = code_expiry(24 * 60)
         await audit_action(
