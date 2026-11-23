@@ -130,12 +130,6 @@ async def cb_group_new(callback: CallbackQuery, state: FSMContext, session: Asyn
     kind = parts[2]
     class_id = int(parts[3])
 
-    from classmate.bot.handlers.wizards import (
-        start_exam_after_class,
-        start_homework_after_class,
-        start_report_after_class,
-    )
-
     user = await get_user(session, callback.from_user, private=False)
     ctx = await get_class_with_school(session, class_id)
     if (
@@ -147,15 +141,13 @@ async def cb_group_new(callback: CallbackQuery, state: FSMContext, session: Asyn
         await callback.answer("فقط عضو فعال این کلاس می‌تواند درخواست ثبت کند.", show_alert=True)
         return
 
+    command = {"hw": "/homework", "exam": "/exam", "report": "/report"}.get(kind)
+    if command is None:
+        await callback.answer("نوع اطلاعات معتبر نیست.", show_alert=True)
+        return
     await state.clear()
     await delete_panel(callback.message)
     await callback.answer()
-
-    if kind == "hw":
-        await start_homework_after_class(callback.message, state, session, class_id)
-    elif kind == "exam":
-        await start_exam_after_class(callback.message, state, session, class_id)
-    elif kind == "report":
-        await start_report_after_class(callback.message, state, session, class_id)
-    else:
-        await callback.message.answer("نوع اطلاعات معتبر نیست.")
+    await callback.message.answer(
+        f"برای ثبت مورد جدید در این کلاس، فرمان {command} را در گفت‌وگوی خصوصی ربات اصلی ارسال کنید."
+    )
