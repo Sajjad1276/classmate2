@@ -1,48 +1,91 @@
-"""Student onboarding only: join an existing class and list memberships."""
+"""Student onboarding: join a class with its shared ClassMate code."""
 
 from html import escape
 
-from aiogram import Router
+from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from classmate.bot.handlers.ui import get_user
+from classmate.bot.states import JoinForm
 from classmate.db.models import AcademicYear, ClassGroup, ClassMembership, School
-from classmate.services.permissions import consume_class_member_invite_code
+from classmate.services.permissions import consume_class_member_join_code
 
 router = Router(name="onboarding")
 
 
-@router.message(Command("join"))
-async def join_class(message: Message, session: AsyncSession) -> None:
-    if message.chat.type != "private":
-        await message.answer("برای عضویت، فرمان /join را در گفت‌وگوی خصوصی ربات اجرا کنید.")
-        return
-    parts = (message.text or "").split(maxsplit=1)
-    if len(parts) != 2 or not parts[1].strip():
-        await message.answer("قالب: /join کد_اختصاصی_عضویت")
-        return
-
-    code = parts[1].strip().upper()
+async def _join_with_class_code(
+    message: Message,
+    *,
+    session: AsyncSession,
+    code: str,
+) -> tuple[bool, str]:
     user = await get_user(session, message.from_user, private=True)
     if not user.is_active:
-        await message.answer("حساب کاربری شما غیرفعال است.")
-        return
-
+        return False, "حساب کاربری شما غیرفعال است."
     try:
-        class_group = await consume_class_member_invite_code(
+        class_group = await consume_class_member_join_code(
             session,
             code=code,
             user=user,
         )
     except (PermissionError, ValueError) as exc:
-        await message.answer(str(exc))
+        return False, str(exc)
+    return True, f"با موفقیت به کلاس <b>{escape(class_group.name)}</b> ملحق شدید."
+
+
+@router.message(Command("join"))
+async def join_class(
+    message: Message,
+    session: AsyncSession,
+    state: FSMContext,
+) -> None:
+    if message.chat.type != "private":
+        await message.answer("برای عضویت، فرمان /join را در گفت‌وگوی خصوصی ربات اجرا کنید.")
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].strip():
+        await message.answer("قالب: /join کد_ورود_کلاس")
+        return
+
+    succeeded, response = await _join_with_class_code(
+        message,
+        session=session,
+        code=parts[1].strip().upper(),
+    )
+    await message.answer(response)
+    if succeeded:
+        await state.clear()
+
+
+@router.message(JoinForm.code, F.text)
+async def join_class_code_input(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+) -> None:
+    if message.chat.type != "private":
+        return
+    code = (message.text or "").strip().upper()
+    if not code or len(code) > 64 or any(ch.isspace() for ch in code):
+        await message.answer("کد ورود معتبر نیست؛ کد را بدون فاصله دوباره وارد کنید.")
+        return
+
+    succeeded, response = await _join_with_class_code(
+        message,
+        session=session,
+        code=code,
+    )
+    if succeeded:
+        await state.clear()
+        await message.answer(response)
         return
 
     await message.answer(
-        f"با موفقیت به کلاس <b>{escape(class_group.name)}</b> ملحق شدید."
+        f"{response}\n\nکد درست را دوباره بفرستید یا «❌ انصراف» را بزنید."
     )
 
 
