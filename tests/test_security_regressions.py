@@ -11,6 +11,7 @@ from classmate.db.models import (
     Attendance,
     ClassGroup,
     ClassMembership,
+    ClassMemberInviteCode,
     Grade,
     Homework,
     Poll,
@@ -26,6 +27,7 @@ from classmate.services.phase2 import answer_poll, save_submission
 from classmate.services.permissions import (
     activate_student_membership,
     connect_group_by_code,
+    consume_class_member_invite_code,
     hash_code,
     user_can_access_class,
 )
@@ -277,20 +279,26 @@ async def test_telegram_outbox_enqueue_is_idempotent_and_detects_key_collisions(
 
 
 @pytest.mark.asyncio
-async def test_legacy_join_command_does_not_restore_a_revoked_manager_role(world):
+async def test_personal_join_code_reactivates_only_its_assigned_student(world):
     from classmate.bot.handlers.onboarding import join_class
 
     session = world["session"]
+    student = world["student"]
     membership = await session.scalar(
         select(ClassMembership).where(
             ClassMembership.class_id == world["class"].id,
-            ClassMembership.user_id == world["manager"].id,
+            ClassMembership.user_id == student.id,
         )
     )
     membership.is_active = False
-    code = "ABCD2345"
-    world["class"].member_join_code_hash = hash_code(code)
-    world["class"].member_join_code_expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    code = "PERSONALSTUDENT01"
+    invite = ClassMemberInviteCode(
+        class_id=world["class"].id,
+        user_id=student.id,
+        code_hash=hash_code(code),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    session.add(invite)
     await session.flush()
 
     sent = []
@@ -302,19 +310,104 @@ async def test_legacy_join_command_does_not_restore_a_revoked_manager_role(world
         text=f"/join {code}",
         chat=SimpleNamespace(type="private"),
         from_user=SimpleNamespace(
-            id=world["manager"].telegram_id,
-            username=world["manager"].username,
-            full_name=world["manager"].full_name,
-            first_name=world["manager"].full_name,
+            id=student.telegram_id,
+            username=student.username,
+            full_name=student.full_name,
+            first_name=student.full_name,
         ),
         answer=answer,
     )
-
     await join_class(message, session)
 
     assert membership.is_active is True
     assert membership.role == Role.STUDENT
+    assert invite.used_at is not None
     assert sent and "ملحق شدید" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_personal_join_code_cannot_be_used_by_another_telegram_account(world):
+    from classmate.bot.handlers.onboarding import join_class
+
+    session = world["session"]
+    code = "PERSONALSTUDENT02"
+    invite = ClassMemberInviteCode(
+        class_id=world["class"].id,
+        user_id=world["student"].id,
+        code_hash=hash_code(code),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    session.add(invite)
+    await session.flush()
+
+    sent = []
+
+    async def answer(message):
+        sent.append(message)
+
+    manager = world["manager"]
+    message = SimpleNamespace(
+        text=f"/join {code}",
+        chat=SimpleNamespace(type="private"),
+        from_user=SimpleNamespace(
+            id=manager.telegram_id,
+            username=manager.username,
+            full_name=manager.full_name,
+            first_name=manager.full_name,
+        ),
+        answer=answer,
+    )
+    await join_class(message, session)
+
+    assert invite.used_at is None
+    assert sent and "حساب تلگرام دیگری" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_personal_join_code_is_one_time_and_expires(world):
+    session = world["session"]
+    student = world["student"]
+    code = "PERSONALSTUDENT03"
+    invite = ClassMemberInviteCode(
+        class_id=world["class"].id,
+        user_id=student.id,
+        code_hash=hash_code(code),
+        expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+    )
+    session.add(invite)
+    await session.flush()
+    with pytest.raises(ValueError, match="مهلت"):
+        await consume_class_member_invite_code(session, code=code, user=student)
+
+    invite.expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    await consume_class_member_invite_code(session, code=code, user=student)
+    with pytest.raises(ValueError, match="قبلاً استفاده"):
+        await consume_class_member_invite_code(session, code=code, user=student)
+
+
+@pytest.mark.asyncio
+async def test_group_link_can_replace_group_for_same_class(world):
+    session = world["session"]
+    cls = world["class"]
+    cls.group_chat_id = -1001234567002
+    code = "REPLACEGROUP2345"
+    cls.group_link_code_hash = hash_code(code)
+    cls.group_link_code_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    linked = await connect_group_by_code(
+        session,
+        code=code,
+        chat_id=-1001234567003,
+        chat_title="گروه جدید",
+        actor=world["manager"],
+        bot_is_admin=True,
+        actor_is_admin=True,
+    )
+
+    assert linked.group_chat_id == -1001234567003
+    assert linked.group_chat_title == "گروه جدید"
+    assert linked.group_link_code_hash is None
+
 
 
 @pytest.mark.asyncio
@@ -360,27 +453,10 @@ async def test_group_link_requires_class_manager_and_both_telegram_admins(world)
 
 
 @pytest.mark.asyncio
-async def test_group_link_cannot_overwrite_existing_class_or_group_binding(world):
+async def test_group_link_cannot_claim_group_already_bound_to_another_class(world):
     from classmate.db.models import ClassGroup
 
     session = world["session"]
-    cls = world["class"]
-    code = "EFGH2345"
-    cls.group_link_code_hash = hash_code(code)
-    cls.group_link_code_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
-    cls.group_chat_id = -1001234567002
-
-    with pytest.raises(ValueError, match="از قبل به گروه دیگری"):
-        await connect_group_by_code(
-            session,
-            code=code,
-            chat_id=-1001234567003,
-            chat_title="گروه جدید",
-            actor=world["manager"],
-            bot_is_admin=True,
-            actor_is_admin=True,
-        )
-
     other = ClassGroup(
         academic_year_id=world["year"].id,
         name="دهم ۱۰۲",
@@ -390,21 +466,23 @@ async def test_group_link_cannot_overwrite_existing_class_or_group_binding(world
     )
     session.add(other)
     await session.flush()
-    cls.group_chat_id = None
-    code2 = "JKLM2345"
-    cls.group_link_code_hash = hash_code(code2)
+
+    cls = world["class"]
+    code = "DUPLICATEGROUP2345"
+    cls.group_link_code_hash = hash_code(code)
     cls.group_link_code_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
 
     with pytest.raises(ValueError, match="قبلاً به کلاس دیگری"):
         await connect_group_by_code(
             session,
-            code=code2,
+            code=code,
             chat_id=-1001234567004,
             chat_title="گروه تکراری",
             actor=world["manager"],
             bot_is_admin=True,
             actor_is_admin=True,
         )
+
 
 
 @pytest.mark.asyncio

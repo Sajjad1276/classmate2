@@ -51,6 +51,7 @@ def test_alembic_head_installs_without_bot_token_and_is_repeatable(tmp_path, mon
             "poll_responses",
             "reminder_jobs",
             "telegram_outbox",
+            "class_member_invite_codes",
         }.issubset(tables)
         assert "alembic_version" in tables
         daily_report_constraints = inspect(engine).get_unique_constraints("daily_reports")
@@ -118,6 +119,7 @@ def test_legacy_0001_database_receives_missing_phase_tables(tmp_path):
         tables = set(inspect(engine).get_table_names())
         assert missing_tables.issubset(tables)
         assert "telegram_outbox" in tables
+        assert "class_member_invite_codes" in tables
         daily_report_constraints = inspect(engine).get_unique_constraints("daily_reports")
         assert all(
             item.get("name") != "uq_daily_report_class_date"

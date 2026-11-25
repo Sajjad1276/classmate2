@@ -44,13 +44,13 @@ WEEKDAYS = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چه
 
 
 async def render_panel(message: Message, text: str, markup) -> None:
-    await message.answer(text, reply_markup=markup)
     cleanup = await message.answer("\u2063", reply_markup=ReplyKeyboardRemove())
     try:
         await asyncio.sleep(0.1)
         await cleanup.delete()
     except Exception:
         logger.debug("keyboard cleanup failed", exc_info=True)
+    await message.answer(text, reply_markup=markup)
 
 
 async def delete_panel(message: Message) -> None:

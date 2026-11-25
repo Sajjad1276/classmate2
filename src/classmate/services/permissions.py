@@ -11,6 +11,7 @@ from classmate.db.models import (
     AcademicYear,
     ClassGroup,
     ClassMembership,
+    ClassMemberInviteCode,
     School,
     SchoolMembership,
     User,
@@ -156,8 +157,6 @@ async def connect_group_by_code(
     if not is_platform_admin and class_manager is None and school_manager is None:
         raise PermissionError("فقط مدیر همین کلاس یا مدیر مدرسه می‌تواند گروه را متصل کند.")
 
-    if candidate.group_chat_id is not None and candidate.group_chat_id != chat_id:
-        raise ValueError("این کلاس از قبل به گروه دیگری متصل است.")
     existing_class_id = await session.scalar(
         select(ClassGroup.id).where(
             ClassGroup.group_chat_id == chat_id,
@@ -259,3 +258,55 @@ async def can_approve(session: AsyncSession, user: User, class_id: int) -> bool:
         )
         is not None
     )
+
+
+
+async def consume_class_member_invite_code(
+    session: AsyncSession,
+    *,
+    code: str,
+    user: User,
+) -> ClassGroup:
+    normalized_code = code.strip().upper()
+    if not normalized_code or len(normalized_code) > 64:
+        raise ValueError("کد عضویت معتبر نیست.")
+    if not user.is_active:
+        raise PermissionError("حساب کاربری شما غیرفعال است.")
+
+    invite = await session.scalar(
+        select(ClassMemberInviteCode)
+        .where(ClassMemberInviteCode.code_hash == hash_code(normalized_code))
+        .with_for_update()
+    )
+    if invite is None:
+        raise ValueError("کد عضویت اختصاصی معتبر نیست.")
+    if invite.user_id != user.id:
+        raise PermissionError("این کد برای حساب تلگرام دیگری صادر شده است.")
+    if invite.used_at is not None:
+        raise ValueError("این کد قبلاً استفاده شده است.")
+    expires_at = invite.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if expires_at <= now:
+        raise ValueError("مهلت استفاده از این کد به پایان رسیده است.")
+
+    class_context = await get_class_with_school(session, invite.class_id)
+    if class_context is None:
+        raise ValueError("کلاس یا مدرسه غیرفعال است.")
+    class_group = class_context[0]
+    membership = await session.scalar(
+        select(ClassMembership)
+        .where(
+            ClassMembership.class_id == invite.class_id,
+            ClassMembership.user_id == user.id,
+        )
+        .with_for_update()
+    )
+    if membership is None or membership.role != Role.STUDENT:
+        raise PermissionError("عضویت دانش‌آموز برای این حساب در این کلاس ثبت نشده است.")
+
+    await activate_student_membership(session, invite.class_id, user.id)
+    invite.used_at = now
+    await session.flush()
+    return class_group

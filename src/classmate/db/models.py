@@ -123,6 +123,23 @@ class ClassMembership(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
+
+class ClassMemberInviteCode(Base):
+    __tablename__ = "class_member_invite_codes"
+    __table_args__ = (
+        UniqueConstraint("class_id", "user_id", name="uq_class_member_invite_code_user_class"),
+        Index("ix_class_member_invite_codes_expiry", "expires_at", "used_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class Subject(TimestampMixin, Base):
     __tablename__ = "subjects"
     __table_args__ = (UniqueConstraint("school_id", "normalized_name", name="uq_school_subject"),)
