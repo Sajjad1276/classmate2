@@ -76,7 +76,7 @@ async def link_group_command(message: Message, session: AsyncSession) -> None:
         return
 
     await message.answer(
-        "✅ این گروه با موفقیت به کلاس زیر متصل شد:\n"
+        "✅ گروه تلگرام کلاس با موفقیت ثبت/به‌روزرسانی شد:\n"
         f"<b>{linked_class.name}</b>\n\n"
-        "کد اتصال مصرف شد و دیگر قابل استفاده نیست."
+        "اتصال قبلی این کلاس جایگزین شد و کد یک‌بارمصرف دیگر قابل استفاده نیست."
     )
