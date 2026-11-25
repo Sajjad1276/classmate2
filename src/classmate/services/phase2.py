@@ -22,7 +22,7 @@ from classmate.db.models import (
     Subject,
     User,
 )
-from classmate.services.permissions import user_can_access_class
+from classmate.services.permissions import can_approve, user_can_access_class
 
 
 def validate_grade_values(score: float, max_score: float) -> None:

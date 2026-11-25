@@ -24,6 +24,7 @@ from classmate.db.models import (
     User,
 )
 from classmate.domain.dates import persian_weekday
+from classmate.services.permissions import can_approve
 
 
 async def dashboard_data(
