@@ -261,6 +261,84 @@ async def can_approve(session: AsyncSession, user: User, class_id: int) -> bool:
 
 
 
+
+async def consume_class_member_join_code(
+    session: AsyncSession,
+    *,
+    code: str,
+    user: User,
+) -> ClassGroup:
+    """Join a class using its reusable ClassMate-native member_join_code.
+
+    A class code is shared by all learners in that class. It remains valid until
+    a manager rotates it; a nullable expiry therefore means no scheduled expiry.
+    Previously-issued per-user codes are still accepted as a compatibility path.
+    """
+    normalized_code = code.strip().upper()
+    if not normalized_code or len(normalized_code) > 64:
+        raise ValueError("کد ورود کلاس معتبر نیست.")
+    if not user.is_active:
+        raise PermissionError("حساب کاربری شما غیرفعال است.")
+
+    code_hash = hash_code(normalized_code)
+    class_group = await session.scalar(
+        select(ClassGroup)
+        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
+        .where(
+            ClassGroup.member_join_code_hash == code_hash,
+            ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
+        )
+        .with_for_update()
+    )
+
+    if class_group is None:
+        # Do not strand students who received the older, one-user invitations
+        # before class-level codes became the default.
+        return await consume_class_member_invite_code(
+            session,
+            code=normalized_code,
+            user=user,
+        )
+
+    expires_at = class_group.member_join_code_expires_at
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            raise ValueError("کد ورود این کلاس منقضی شده است؛ از مدیر کلاس کد تازه بگیرید.")
+
+    membership = await session.scalar(
+        select(ClassMembership)
+        .where(
+            ClassMembership.class_id == class_group.id,
+            ClassMembership.user_id == user.id,
+        )
+        .with_for_update()
+    )
+    if membership is not None:
+        if membership.role != Role.STUDENT:
+            raise PermissionError(
+                "این حساب در کلاس نقش مدیریتی دارد؛ برای تغییر نقش با مدیر سامانه تماس بگیرید."
+            )
+        if membership.is_active:
+            raise ValueError(f"شما از قبل عضو فعال کلاس «{class_group.name}» هستید.")
+        membership.is_active = True
+    else:
+        session.add(
+            ClassMembership(
+                class_id=class_group.id,
+                user_id=user.id,
+                role=Role.STUDENT,
+                is_active=True,
+            )
+        )
+
+    await session.flush()
+    return class_group
+
+
 async def consume_class_member_invite_code(
     session: AsyncSession,
     *,
