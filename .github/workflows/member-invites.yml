@@ -11,7 +11,7 @@ on:
       - "tests/test_member_invites.py"
       - ".github/workflows/member-invites.yml"
   push:
-    branches: ["feature/member-specific-invites-group-edit-fix"]
+    branches: ["feature/**"]
     paths:
       - "src/classmate/db/models.py"
       - "src/classmate/services/permissions.py"
