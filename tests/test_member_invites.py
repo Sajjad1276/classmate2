@@ -232,3 +232,83 @@ async def test_native_shared_code_path_keeps_old_personal_codes_compatible(world
 
     assert joined_class.id == world["class"].id
     assert invitation.used_at is not None
+
+
+
+@pytest.mark.asyncio
+async def test_native_join_button_text_input_uses_shared_class_code(world):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from classmate.bot.handlers.onboarding import join_class_code_input
+    from classmate.db.models import User
+    from classmate.services.permissions import hash_code
+
+    session = world["session"]
+    code = "JOINBUTTON42"
+    world["class"].member_join_code_hash = hash_code(code)
+    student = User(
+        telegram_id=909010,
+        username="button_student",
+        full_name="دانش‌آموز دکمه‌ای",
+        private_chat_started=True,
+    )
+    session.add(student)
+    await session.flush()
+
+    message = SimpleNamespace(
+        chat=SimpleNamespace(type="private"),
+        text=code,
+        from_user=SimpleNamespace(
+            id=student.telegram_id,
+            username=student.username,
+            full_name=student.full_name,
+            first_name=student.full_name,
+        ),
+        answer=AsyncMock(),
+    )
+    state = AsyncMock()
+
+    await join_class_code_input(message, state=state, session=session)
+
+    state.clear.assert_awaited_once()
+    message.answer.assert_awaited_once()
+    assert "ملحق شدید" in message.answer.await_args.args[0]
+    membership = await session.scalar(
+        select(ClassMembership).where(
+            ClassMembership.class_id == world["class"].id,
+            ClassMembership.user_id == student.id,
+        )
+    )
+    assert membership is not None and membership.is_active is True
+
+
+@pytest.mark.asyncio
+async def test_native_join_button_keeps_input_state_after_wrong_code(world):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from classmate.bot.handlers.onboarding import join_class_code_input
+
+    message = SimpleNamespace(
+        chat=SimpleNamespace(type="private"),
+        text="WRONGCODE123",
+        from_user=SimpleNamespace(
+            id=world["student"].telegram_id,
+            username=world["student"].username,
+            full_name=world["student"].full_name,
+            first_name=world["student"].full_name,
+        ),
+        answer=AsyncMock(),
+    )
+    state = AsyncMock()
+
+    await join_class_code_input(
+        message,
+        state=state,
+        session=world["session"],
+    )
+
+    state.clear.assert_not_awaited()
+    message.answer.assert_awaited_once()
+    assert "دوباره بفرستید" in message.answer.await_args.args[0]
