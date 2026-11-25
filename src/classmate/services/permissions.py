@@ -4,7 +4,14 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from classmate.db.models import AcademicYear, ClassGroup, ClassMembership, School, User
+from classmate.db.models import (
+    AcademicYear,
+    ClassGroup,
+    ClassMembership,
+    School,
+    SchoolMembership,
+    User,
+)
 
 
 def hash_code(code: str) -> str:
