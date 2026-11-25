@@ -2,8 +2,10 @@
 
 import hashlib
 from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from classmate.core.enums import Role
 from classmate.db.models import (
     AcademicYear,
     ClassGroup,
