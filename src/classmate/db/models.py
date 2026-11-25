@@ -20,7 +20,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from classmate.core.enums import OutboxStatus, RecordStatus, ReminderStatus
+from classmate.core.enums import OutboxStatus, RecordStatus, ReminderStatus, Role
 from classmate.db.base import Base
 
 
@@ -40,6 +40,9 @@ class User(TimestampMixin, Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     username: Mapped[str | None] = mapped_column(String(64))
     full_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    # Retained from the immutable 0001 database snapshot. Work's RBAC is
+    # authoritative for operations, but older product rows still carry this flag.
+    is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     private_chat_started: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
@@ -50,6 +53,24 @@ class School(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(180), nullable=False)
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Tehran", nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class SchoolMembership(TimestampMixin, Base):
+    __tablename__ = "school_memberships"
+    __table_args__ = (
+        UniqueConstraint("school_id", "user_id", name="uq_school_user"),
+        Index("ix_school_memberships_user_active_school", "user_id", "is_active", "school_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    school_id: Mapped[int] = mapped_column(ForeignKey("schools.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    role: Mapped[Role] = mapped_column(
+        Enum(Role, name="school_role", native_enum=False),
+        default=Role.SCHOOL_ADMIN,
+        nullable=False,
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
@@ -94,6 +115,11 @@ class ClassMembership(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    role: Mapped[Role] = mapped_column(
+        Enum(Role, name="class_role", native_enum=False),
+        default=Role.STUDENT,
+        nullable=False,
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
