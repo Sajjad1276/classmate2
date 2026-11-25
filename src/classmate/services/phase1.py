@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.core.enums import EntityType, OutboxStatus, RecordStatus, ReminderStatus
 from classmate.db.models import (
     AcademicYear,
+    Attendance,
     Announcement,
     ClassGroup,
     DailyReport,
@@ -281,3 +282,54 @@ async def list_announcements(session: AsyncSession, class_ids: list[int], limit:
                or_(Announcement.expires_at.is_(None), Announcement.expires_at > now))
         .order_by(Announcement.published_at.desc()).limit(limit)
     )).all())
+
+
+async def archive_record(
+    session: AsyncSession,
+    entity_type: str,
+    entity_id: int,
+    actor: User,
+) -> tuple[bool, str]:
+    models = {
+        EntityType.HOMEWORK.value: Homework,
+        EntityType.EXAM.value: Exam,
+        EntityType.REPORT.value: DailyReport,
+    }
+    model = models.get(entity_type)
+    if model is None or entity_id <= 0:
+        return False, "نوع رکورد یا شناسه معتبر نیست."
+
+    record = await session.scalar(
+        select(model).where(model.id == entity_id).with_for_update()
+    )
+    if record is None:
+        return False, "رکورد پیدا نشد."
+    if record.status == RecordStatus.CANCELLED:
+        return False, "این رکورد قبلاً بایگانی شده است."
+    if not await can_approve(session, actor, record.class_id):
+        return False, "اجازه بایگانی این رکورد را ندارید."
+
+    record.status = RecordStatus.CANCELLED
+    if hasattr(record, "cancelled_at"):
+        record.cancelled_at = datetime.now(timezone.utc)
+
+    await session.execute(
+        update(ReminderJob)
+        .where(
+            ReminderJob.entity_type == entity_type,
+            ReminderJob.entity_id == entity_id,
+            ReminderJob.status.in_([ReminderStatus.PENDING, ReminderStatus.RETRY]),
+        )
+        .values(status=ReminderStatus.CANCELLED, locked_at=None)
+    )
+    await session.execute(
+        update(TelegramOutbox)
+        .where(
+            TelegramOutbox.entity_type == entity_type,
+            TelegramOutbox.entity_id == entity_id,
+            TelegramOutbox.status.in_([OutboxStatus.PENDING, OutboxStatus.RETRY]),
+        )
+        .values(status=OutboxStatus.CANCELLED, locked_at=None)
+    )
+    await session.flush()
+    return True, "رکورد با موفقیت بایگانی شد."

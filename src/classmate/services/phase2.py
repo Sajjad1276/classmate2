@@ -298,3 +298,77 @@ async def poll_result(session: AsyncSession, poll_id: int):
             )
         ).all()
     )
+
+
+async def save_attendance(
+    session: AsyncSession,
+    *,
+    class_id: int,
+    student_id: int,
+    attendance_date: date,
+    status: str,
+    marked_by: int,
+    note: str | None = None,
+) -> Attendance:
+    allowed_statuses = {"present", "absent", "late", "excused"}
+    if status not in allowed_statuses:
+        raise ValueError("وضعیت حضور معتبر نیست.")
+    if class_id <= 0 or student_id <= 0 or marked_by <= 0:
+        raise ValueError("شناسه کلاس یا کاربر معتبر نیست.")
+    if not isinstance(attendance_date, date):
+        raise ValueError("تاریخ حضور معتبر نیست.")
+
+    class_context = await session.scalar(
+        select(ClassGroup)
+        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
+        .where(
+            ClassGroup.id == class_id,
+            ClassGroup.is_active.is_(True),
+            School.is_active.is_(True),
+        )
+    )
+    if class_context is None:
+        raise ValueError("کلاس فعال پیدا نشد.")
+
+    student = await session.get(User, student_id)
+    membership = await session.scalar(
+        select(ClassMembership)
+        .where(
+            ClassMembership.class_id == class_id,
+            ClassMembership.user_id == student_id,
+            ClassMembership.is_active.is_(True),
+        )
+        .with_for_update()
+    )
+    reviewer = await session.get(User, marked_by)
+    if student is None or not student.is_active or membership is None:
+        raise PermissionError("دانش‌آموز عضو فعال این کلاس نیست.")
+    if reviewer is None or not await can_approve(session, reviewer, class_id):
+        raise PermissionError("فقط مدیر کلاس یا تأییدکننده می‌تواند حضور را ثبت کند.")
+
+    record = await session.scalar(
+        select(Attendance)
+        .where(
+            Attendance.class_id == class_id,
+            Attendance.student_id == student_id,
+            Attendance.attendance_date == attendance_date,
+        )
+        .with_for_update()
+    )
+    if record is None:
+        record = Attendance(
+            class_id=class_id,
+            student_id=student_id,
+            attendance_date=attendance_date,
+            status=status,
+            note=note,
+            marked_by=marked_by,
+        )
+        session.add(record)
+    else:
+        record.status = status
+        record.note = note
+        record.marked_by = marked_by
+    await session.flush()
+    return record

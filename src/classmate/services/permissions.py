@@ -1,6 +1,7 @@
 """Learner access and invitation-code helpers."""
 
 import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
@@ -172,3 +173,89 @@ async def connect_group_by_code(
     candidate.group_link_code_expires_at = None
     await session.flush()
     return candidate
+
+
+_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def make_code(length: int = 8) -> str:
+    if not 4 <= length <= 64:
+        raise ValueError("طول کد باید بین ۴ تا ۶۴ نویسه باشد.")
+    return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(length))
+
+
+async def is_class_manager(session: AsyncSession, user: User, class_id: int) -> bool:
+    if not user.is_active or await get_class_with_school(session, class_id) is None:
+        return False
+    if user.is_platform_admin:
+        return True
+    membership = await session.scalar(
+        select(ClassMembership.id).where(
+            ClassMembership.class_id == class_id,
+            ClassMembership.user_id == user.id,
+            ClassMembership.is_active.is_(True),
+            ClassMembership.role.in_([Role.CLASS_MANAGER, Role.SCHOOL_ADMIN, Role.PLATFORM_ADMIN]),
+        )
+    )
+    if membership is not None:
+        return True
+    school_id = await session.scalar(
+        select(AcademicYear.school_id)
+        .join(ClassGroup, ClassGroup.academic_year_id == AcademicYear.id)
+        .where(ClassGroup.id == class_id)
+    )
+    if school_id is None:
+        return False
+    return (
+        await session.scalar(
+            select(SchoolMembership.id).where(
+                SchoolMembership.school_id == school_id,
+                SchoolMembership.user_id == user.id,
+                SchoolMembership.is_active.is_(True),
+                SchoolMembership.role.in_([Role.SCHOOL_ADMIN, Role.PLATFORM_ADMIN]),
+            )
+        )
+        is not None
+    )
+
+
+async def can_approve(session: AsyncSession, user: User, class_id: int) -> bool:
+    if not user.is_active or await get_class_with_school(session, class_id) is None:
+        return False
+    if user.is_platform_admin:
+        return True
+    membership = await session.scalar(
+        select(ClassMembership.id).where(
+            ClassMembership.class_id == class_id,
+            ClassMembership.user_id == user.id,
+            ClassMembership.is_active.is_(True),
+            ClassMembership.role.in_(
+                [
+                    Role.CLASS_MANAGER,
+                    Role.TRUSTED_APPROVER,
+                    Role.SCHOOL_ADMIN,
+                    Role.PLATFORM_ADMIN,
+                ]
+            ),
+        )
+    )
+    if membership is not None:
+        return True
+    school_id = await session.scalar(
+        select(AcademicYear.school_id)
+        .join(ClassGroup, ClassGroup.academic_year_id == AcademicYear.id)
+        .where(ClassGroup.id == class_id)
+    )
+    if school_id is None:
+        return False
+    return (
+        await session.scalar(
+            select(SchoolMembership.id).where(
+                SchoolMembership.school_id == school_id,
+                SchoolMembership.user_id == user.id,
+                SchoolMembership.is_active.is_(True),
+                SchoolMembership.role.in_([Role.SCHOOL_ADMIN, Role.PLATFORM_ADMIN]),
+            )
+        )
+        is not None
+    )
