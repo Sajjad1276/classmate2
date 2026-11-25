@@ -1,0 +1,44 @@
+name: Member invitation regression tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/classmate/db/models.py"
+      - "src/classmate/services/permissions.py"
+      - "src/classmate/bot/handlers/onboarding.py"
+      - "alembic/versions/0007_class_member_invite_codes.py"
+      - "tests/test_member_invites.py"
+      - ".github/workflows/member-invites.yml"
+  push:
+    branches: ["feature/member-specific-invites-group-edit-fix"]
+    paths:
+      - "src/classmate/db/models.py"
+      - "src/classmate/services/permissions.py"
+      - "src/classmate/bot/handlers/onboarding.py"
+      - "alembic/versions/0007_class_member_invite_codes.py"
+      - "tests/test_member_invites.py"
+      - ".github/workflows/member-invites.yml"
+
+jobs:
+  invite-regressions:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUTF8: "1"
+      PYTHONPATH: src
+      BOT_TOKEN: "0000000000:TEST_TOKEN_FOR_TESTS_ONLY"
+      DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Lint touched invitation files
+        run: ruff check src/classmate/db/models.py src/classmate/services/permissions.py src/classmate/bot/handlers/onboarding.py tests/test_member_invites.py
+      - name: Test personal invitation lifecycle
+        run: pytest -q tests/test_member_invites.py
+      - name: Test fresh and legacy database migrations
+        run: pytest -q tests/test_migrations.py
