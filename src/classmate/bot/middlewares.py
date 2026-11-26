@@ -34,3 +34,27 @@ class DbSessionMiddleware(BaseMiddleware):
                 except Exception:
                     logger.exception("Database rollback failed after handler error")
                 raise
+
+
+class StartOnlyCommandMiddleware(BaseMiddleware):
+    """Reject slash commands other than /start; bot features are panel-driven."""
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        from aiogram.types import Message
+
+        if isinstance(event, Message):
+            raw_text = (event.text or event.caption or "").strip()
+            if raw_text.startswith("/"):
+                command = raw_text.split(maxsplit=1)[0].split("@", maxsplit=1)[0]
+                if command.casefold() != "/start":
+                    await event.answer(
+                        "برای استفاده از امکانات ClassMate از دکمه‌های پنل استفاده کنید؛ "
+                        "فقط دستور /start فعال است."
+                    )
+                    return None
+        return await handler(event, data)
