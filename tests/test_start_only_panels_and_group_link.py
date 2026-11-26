@@ -139,3 +139,40 @@ async def test_my_classes_panel_shows_group_link_controls_only_to_managers(world
     )
     await btn_classes(student_message, session=world["session"])
     assert student_message.answer.await_args.kwargs.get("reply_markup") is None
+
+
+def test_only_start_is_registered_and_no_legacy_command_filters_remain():
+    import ast
+    from pathlib import Path
+
+    source_root = Path(__file__).resolve().parents[1]
+    bot_root = source_root / "src" / "classmate" / "bot"
+    registered_commands = []
+    command_filters = []
+
+    for path in bot_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            function_name = (
+                node.func.id if isinstance(node.func, ast.Name) else None
+            )
+            if function_name == "BotCommand":
+                command = next(
+                    (
+                        keyword.value.value
+                        for keyword in node.keywords
+                        if keyword.arg == "command"
+                        and isinstance(keyword.value, ast.Constant)
+                    ),
+                    None,
+                )
+                if command is not None:
+                    registered_commands.append(command)
+            elif function_name == "Command":
+                command_filters.append((path.relative_to(source_root), node.lineno))
+
+    assert registered_commands
+    assert set(registered_commands) == {"start"}
+    assert command_filters == []
