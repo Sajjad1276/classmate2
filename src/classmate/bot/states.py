@@ -17,3 +17,8 @@ class SubmissionForm(StatesGroup):
 class GroupLinkForm(StatesGroup):
     code = State()
     selecting = State()
+
+
+class BroadcastForm(StatesGroup):
+    content = State()
+    confirm = State()

@@ -22,6 +22,7 @@ def main_menu(*, is_owner: bool = False) -> ReplyKeyboardMarkup:
             [KeyboardButton(text="❓ راهنما"), KeyboardButton(text="🆘 پشتیبانی")],
         ]
     if is_owner:
+        keyboard[2].append(KeyboardButton(text="🔴 مدیریت", style="danger"))
         keyboard.append([KeyboardButton(text="🏫 کلاس‌ها", style="primary")])
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
