@@ -36,6 +36,8 @@ async def test_ensure_user_creates_new(session: AsyncSession):
     assert user.telegram_id == 111
     assert user.full_name == "Ali Reza"
     assert user.private_chat_started is True
+    assert user.first_private_started_at is not None
+    assert user.last_seen_at is not None
 
 
 @pytest.mark.asyncio
@@ -56,3 +58,5 @@ async def test_ensure_user_updates_existing(session: AsyncSession):
     assert u2.username == "new"
     assert u2.full_name == "New Name"
     assert u2.private_chat_started is True
+    assert u2.first_private_started_at is not None
+    assert u2.last_seen_at is not None
