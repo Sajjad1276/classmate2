@@ -8,7 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from classmate.bot.command_menu import setup_default_commands
 from classmate.bot.handlers import setup_routers
-from classmate.bot.middlewares import DbSessionMiddleware
+from classmate.bot.middlewares import DbSessionMiddleware, StartOnlyCommandMiddleware
 from classmate.core.config import get_settings
 from classmate.core.logging import configure_logging
 
@@ -56,6 +56,7 @@ async def main() -> None:
     storage = create_storage()
     dp = Dispatcher(storage=storage)
     dp.update.middleware(DbSessionMiddleware())
+    dp.message.middleware(StartOnlyCommandMiddleware())
     dp.include_router(setup_routers())
 
     logger.info("Starting ClassMate 2 bot")
