@@ -289,13 +289,22 @@ async def select_group_for_class(
     )
     await callback.answer()
     await callback.message.answer(
-        "📂 <b>انتخاب گروه کلاس</b>" + LINE_BREAK + LINE_BREAK
-        "گروه موردنظر را از فهرست گروه‌های تلگرام انتخاب کنید. "
-        "برای اتصال، شما باید مدیر گروه باشید و ربات نیز باید در گروه عضو و مدیر باشد." + LINE_BREAK + LINE_BREAK
-        "پس از انتخاب، پیش‌نیازها بررسی می‌شوند و قبل از ثبت نهایی، خلاصه عملیات را می‌بینید.",
+        LINE_BREAK.join([
+            "📂 <b>انتخاب گروه کلاس</b>",
+            "گروه موردنظر را از فهرست گروه‌های تلگرام انتخاب کنید. "
+            "برای اتصال، شما باید مدیر گروه باشید و ربات نیز باید در گروه عضو و مدیر باشد.",
+            "پس از انتخاب، پیش‌نیازها بررسی می‌شوند و قبل از ثبت نهایی، خلاصه عملیات را می‌بینید.",
+        ]),
         reply_markup=picker,
     )
 
+
+
+
+@router.message(GroupLinkForm.selecting, F.text.in_({"❌ لغو انتخاب", "❌ انصراف"}))
+async def cancel_group_picker_message(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("انتخاب گروه لغو شد.", reply_markup=ReplyKeyboardRemove())
 
 @router.message(GroupLinkForm.selecting, F.chat_shared)
 async def group_chat_selected(
@@ -358,14 +367,16 @@ async def group_chat_selected(
     title = chat.title or str(shared.chat_id)
     await state.update_data(pending_group_chat_id=shared.chat_id, pending_group_title=title, pending_class_name=class_name)
     await message.answer(
-        "🧾 <b>پیش‌نمایش ثبت گروه</b>" + LINE_BREAK + LINE_BREAK
-        f"🏫 کلاس: <b>{class_name}</b>" + LINE_BREAK
-        f"👥 گروه: <b>{title}</b>" + LINE_BREAK
-        "🤖 ربات: مدیر گروه است ✓" + LINE_BREAK
-        "👤 شما: مدیر گروه هستید ✓" + LINE_BREAK + LINE_BREAK
-        "با تأیید، این گروه به کلاس متصل می‌شود و لینک ورود دانش‌آموزان ساخته خواهد شد. "
-        "کد ورود قبلی کلاس در صورت وجود با کد تازه جایگزین می‌شود." + LINE_BREAK + LINE_BREAK
-        "ثبت هنوز انجام نشده است.",
+        LINE_BREAK.join([
+            "🧾 <b>پیش‌نمایش ثبت گروه</b>",
+            f"🏫 کلاس: <b>{class_name}</b>",
+            f"👥 گروه: <b>{title}</b>",
+            "🤖 ربات: مدیر گروه است ✓",
+            "👤 شما: مدیر گروه هستید ✓",
+            "با تأیید، این گروه به کلاس متصل می‌شود و لینک ورود دانش‌آموزان ساخته خواهد شد. "
+            "کد ورود قبلی کلاس در صورت وجود با کد تازه جایگزین می‌شود.",
+            "ثبت هنوز انجام نشده است.",
+        ]),
         reply_markup=ReplyKeyboardRemove(),
     )
     await message.answer(
@@ -444,12 +455,14 @@ async def confirm_group_selection(
     await state.clear()
     await callback.answer("گروه با موفقیت ثبت شد.")
     await callback.message.edit_text(
-        "✨ <b>اتصال گروه با موفقیت ثبت شد</b> ✨" + LINE_BREAK + LINE_BREAK
-        f"🏫 کلاس: <b>{linked.name}</b>" + LINE_BREAK
-        f"👥 گروه: <b>{title}</b>" + LINE_BREAK
-        "🔐 پیش‌نیازهای اتصال بررسی و تأیید شدند." + LINE_BREAK
-        "🎓 لینک عضویت دانش‌آموزان آماده است." + LINE_BREAK + LINE_BREAK
-        "دانش‌آموزان با زدن دکمه زیر وارد ربات می‌شوند و عضویت آن‌ها در همین کلاس ثبت خواهد شد.",
+        LINE_BREAK.join([
+            "✨ <b>اتصال گروه با موفقیت ثبت شد</b> ✨",
+            f"🏫 کلاس: <b>{linked.name}</b>",
+            f"👥 گروه: <b>{title}</b>",
+            "🔐 پیش‌نیازهای اتصال بررسی و تأیید شدند.",
+            "🎓 لینک عضویت دانش‌آموزان آماده است.",
+            "دانش‌آموزان با زدن دکمه زیر وارد ربات می‌شوند و عضویت آن‌ها در همین کلاس ثبت خواهد شد.",
+        ]),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
                 text="🚀 ورود به کلاس به‌عنوان دانش‌آموز",
