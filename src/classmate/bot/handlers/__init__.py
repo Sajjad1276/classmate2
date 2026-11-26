@@ -1,5 +1,5 @@
 from aiogram import Router
-from classmate.bot.handlers import errors, groups, onboarding, phase1, phase2, queries, start, ui
+from classmate.bot.handlers import errors, groups, onboarding, phase1, phase2, start, ui
 
 
 def setup_routers() -> Router:
@@ -7,7 +7,6 @@ def setup_routers() -> Router:
     for router in (
         groups.router,
         onboarding.router,
-        queries.router,
         phase1.router,
         phase2.router,
         ui.router,
