@@ -12,3 +12,7 @@ class SearchForm(StatesGroup):
 class SubmissionForm(StatesGroup):
     homework_id = State()
     answer = State()
+
+
+class GroupLinkForm(StatesGroup):
+    code = State()
