@@ -45,16 +45,15 @@ class StartOnlyCommandMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
-        from aiogram.types import Message
-
-        if isinstance(event, Message):
-            raw_text = (event.text or event.caption or "").strip()
-            if raw_text.startswith("/"):
-                command = raw_text.split(maxsplit=1)[0].split("@", maxsplit=1)[0]
-                if command.casefold() != "/start":
-                    await event.answer(
+        raw_text = (getattr(event, "text", None) or getattr(event, "caption", None) or "").strip()
+        if raw_text.startswith("/"):
+            command = raw_text.split(maxsplit=1)[0].split("@", maxsplit=1)[0]
+            if command.casefold() != "/start":
+                answer = getattr(event, "answer", None)
+                if answer is not None:
+                    await answer(
                         "برای استفاده از امکانات ClassMate از دکمه‌های پنل استفاده کنید؛ "
                         "فقط دستور /start فعال است."
                     )
-                    return None
+                return None
         return await handler(event, data)
