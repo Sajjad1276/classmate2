@@ -44,6 +44,8 @@ class User(TimestampMixin, Base):
     # authoritative for operations, but older product rows still carry this flag.
     is_platform_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     private_chat_started: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    first_private_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
