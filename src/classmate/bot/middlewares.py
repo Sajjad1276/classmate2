@@ -1,16 +1,49 @@
 """Dependency injection middlewares."""
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 import logging
 from typing import Any
 
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from classmate.db.models import User
 from classmate.db.session import SessionFactory
 
 logger = logging.getLogger(__name__)
+
+
+async def record_private_activity(session: AsyncSession, event: TelegramObject) -> None:
+    """Track actual private-chat activity without storing message content."""
+    message = getattr(event, "message", None)
+    if message is None and hasattr(event, "chat"):
+        message = event
+    callback = getattr(event, "callback_query", None)
+
+    if callback is not None:
+        sender = callback.from_user
+        chat = getattr(callback.message, "chat", None)
+    elif message is not None:
+        sender = getattr(message, "from_user", None)
+        chat = getattr(message, "chat", None)
+    else:
+        return
+
+    if sender is None or chat is None or getattr(chat, "type", None) != "private":
+        return
+
+    await session.execute(
+        update(User)
+        .where(
+            User.telegram_id == sender.id,
+            User.private_chat_started.is_(True),
+            User.is_active.is_(True),
+        )
+        .values(last_seen_at=datetime.now(UTC))
+    )
 
 
 class DbSessionMiddleware(BaseMiddleware):
@@ -25,6 +58,7 @@ class DbSessionMiddleware(BaseMiddleware):
         async with SessionFactory() as session:
             data["session"] = session
             try:
+                await record_private_activity(session, event)
                 result = await handler(event, data)
                 await session.commit()
                 return result
