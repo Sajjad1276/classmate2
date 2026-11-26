@@ -14,7 +14,7 @@ from aiogram.types import (
     Message,
     ReplyKeyboardRemove,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.bot.keyboards import (
     cancel_kb,
@@ -40,6 +40,7 @@ from classmate.services.users import ensure_user
 
 router = Router(name="ui")
 logger = logging.getLogger(__name__)
+LINE_BREAK = chr(10)
 WEEKDAYS = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"]
 
 
@@ -93,7 +94,7 @@ async def classes_for_user(session: AsyncSession, user: User) -> list[tuple[int,
 
 
 async def menu_for(session: AsyncSession, user: User):
-    return main_menu()
+    return main_menu(is_owner=bool(user.is_platform_admin))
 
 
 async def ask_class(message: Message, session: AsyncSession, action: str, user: User) -> None:
@@ -210,17 +211,122 @@ async def btn_classes(message: Message, session: AsyncSession) -> None:
                 ]
             )
     await message.answer(
-        "🏫 <b>کلاس‌های شما</b>\\n"
-        + "\\n".join(
+        "🏫 <b>کلاس‌های شما</b>\n"
+        + "\n".join(
             f"• <b>{escape(name)}</b> — {escape(school)}"
             for _, name, school in classes
         )
         + (
-            "\\n\\nبرای کلاس‌هایی که مدیر آن هستید، مدیریت اتصال گروه از دکمه‌های زیر در دسترس است."
+            "\n\nبرای کلاس‌هایی که مدیر آن هستید، مدیریت اتصال گروه از دکمه‌های زیر در دسترس است."
             if rows
             else ""
         ),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None,
+    )
+
+
+
+@router.message(F.text.in_({"🏫 کلاس‌ها", "مدیریت کلاس‌ها"}))
+async def owner_classes_message(message: Message, session: AsyncSession) -> None:
+    if message.chat.type != "private":
+        return
+    user = await get_user(session, message.from_user, private=True)
+    if not user.is_platform_admin:
+        await message.answer("این بخش فقط برای مالک سامانه فعال است.")
+        return
+    await _render_owner_classes(message, session, page=0)
+
+
+async def _render_owner_classes(message: Message, session: AsyncSession, *, page: int) -> None:
+    page_size = 8
+    total = await session.scalar(
+        select(func.count(ClassGroup.id))
+        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
+        .where(ClassGroup.is_active.is_(True), School.is_active.is_(True))
+    ) or 0
+    rows = (await session.execute(
+        select(ClassGroup, AcademicYear, School)
+        .join(AcademicYear, ClassGroup.academic_year_id == AcademicYear.id)
+        .join(School, AcademicYear.school_id == School.id)
+        .where(ClassGroup.is_active.is_(True), School.is_active.is_(True))
+        .order_by(School.name, AcademicYear.name, ClassGroup.name)
+        .offset(page * page_size).limit(page_size)
+    )).all()
+    buttons = [
+        [InlineKeyboardButton(
+            text=f"🏫 {cls.name[:28]} · {school.name[:22]}",
+            callback_data=f"owner:class:{cls.id}",
+        )]
+        for cls, year, school in rows
+    ]
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="‹ قبلی", callback_data=f"owner:classes:{page-1}"))
+    if (page + 1) * page_size < total:
+        nav.append(InlineKeyboardButton(text="بعدی ›", callback_data=f"owner:classes:{page+1}"))
+    if nav:
+        buttons.append(nav)
+    buttons.append([InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="ui:home")])
+    await render_panel(
+        message,
+        f"🏫 <b>کلاس‌ها</b>{LINE_BREAK}{LINE_BREAK}تعداد کلاس‌های فعال: <b>{total}</b>{LINE_BREAK}"
+        "برای مشاهده اطلاعات و ثبت گروه، کلاس موردنظر را انتخاب کنید.",
+        InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^owner:classes(?::[0-9]+)?$"))
+async def owner_classes_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("این بخش فقط در گفت‌وگوی خصوصی در دسترس است.", show_alert=True)
+        return
+    user = await get_user(session, callback.from_user, private=True)
+    if not user.is_platform_admin:
+        await callback.answer("دسترسی مالک سامانه لازم است.", show_alert=True)
+        return
+    page = int((callback.data or "").rsplit(":", 1)[-1]) if ":" in (callback.data or "") else 0
+    await callback.answer()
+    await delete_panel(callback.message)
+    await _render_owner_classes(callback.message, session, page=page)
+
+
+@router.callback_query(F.data.regexp(r"^owner:class:[0-9]+$"))
+async def owner_class_detail(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("این بخش فقط در گفت‌وگوی خصوصی در دسترس است.", show_alert=True)
+        return
+    user = await get_user(session, callback.from_user, private=True)
+    if not user.is_platform_admin:
+        await callback.answer("دسترسی مالک سامانه لازم است.", show_alert=True)
+        return
+    class_id = int((callback.data or "").rsplit(":", 1)[-1])
+    context = await get_class_with_school(session, class_id)
+    if context is None:
+        await callback.answer("کلاس فعال پیدا نشد.", show_alert=True)
+        return
+    cls, year, school = context
+    group_status = (
+        f"متصل: <b>{escape(cls.group_chat_title or str(cls.group_chat_id))}</b>{LINE_BREAK}"
+        f"شناسه گروه: <code>{cls.group_chat_id}</code>"
+        if cls.group_chat_id is not None else "هنوز گروهی ثبت نشده است."
+    )
+    text = (
+        f"🏫 <b>{escape(cls.name)}</b>{LINE_BREAK}{LINE_BREAK}"
+        f"مدرسه: {escape(school.name)}{LINE_BREAK}"
+        f"سال تحصیلی: {escape(year.name)}{LINE_BREAK}"
+        f"پایه: {escape(cls.grade)}{LINE_BREAK}"
+        f"شعبه: {escape(cls.section or '—')}{LINE_BREAK}"
+        f"وضعیت: {'فعال' if cls.is_active else 'غیرفعال'}{LINE_BREAK}{LINE_BREAK}"
+        f"🔗 <b>وضعیت گروه</b>{LINE_BREAK}{group_status}"
+    )
+    await callback.answer()
+    await callback.message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔗 ثبت / تغییر گروه", callback_data=f"group:select:{class_id}", style="success")],
+            [InlineKeyboardButton(text="‹ بازگشت به کلاس‌ها", callback_data="owner:classes:0")],
+        ]),
     )
 
 

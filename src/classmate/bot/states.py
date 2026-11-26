@@ -16,3 +16,4 @@ class SubmissionForm(StatesGroup):
 
 class GroupLinkForm(StatesGroup):
     code = State()
+    selecting = State()

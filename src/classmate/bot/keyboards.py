@@ -8,9 +8,8 @@ from aiogram.types import (
 )
 
 
-def main_menu() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
+def main_menu(*, is_owner: bool = False) -> ReplyKeyboardMarkup:
+    keyboard = [
             [
                 KeyboardButton(text="🏠 داشبورد من", style="primary"),
                 KeyboardButton(text="🏫 کلاس‌های من"),
@@ -21,7 +20,11 @@ def main_menu() -> ReplyKeyboardMarkup:
             ],
             [KeyboardButton(text="🔑 ورود با کد دعوت", style="success")],
             [KeyboardButton(text="❓ راهنما"), KeyboardButton(text="🆘 پشتیبانی")],
-        ],
+        ]
+    if is_owner:
+        keyboard.append([KeyboardButton(text="🏫 کلاس‌ها", style="primary")])
+    return ReplyKeyboardMarkup(
+        keyboard=keyboard,
         resize_keyboard=True,
         is_persistent=True,
     )
