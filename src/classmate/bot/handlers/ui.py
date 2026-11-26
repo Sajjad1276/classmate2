@@ -34,7 +34,7 @@ from classmate.db.models import (
     User,
 )
 from classmate.domain.dates import jalali_date, jalali_datetime
-from classmate.services.permissions import get_class_with_school, user_can_access_class
+from classmate.services.permissions import get_class_with_school, is_class_manager, user_can_access_class
 from classmate.services.records import list_exams, list_homework, list_reports
 from classmate.services.users import ensure_user
 
@@ -194,11 +194,33 @@ async def btn_classes(message: Message, session: AsyncSession) -> None:
         return
     user = await get_user(session, message.from_user, private=True)
     classes = await classes_for_user(session, user)
+    if not classes:
+        await message.answer("هنوز عضو کلاسی نیستید.")
+        return
+
+    rows = []
+    for class_id, class_name, school_name in classes:
+        if await is_class_manager(session, user, class_id):
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"🔗 اتصال گروه · {class_name[:35]}",
+                        callback_data=f"group:manage:{class_id}",
+                    )
+                ]
+            )
     await message.answer(
-        "هنوز عضو کلاسی نیستید."
-        if not classes
-        else "🏫 <b>کلاس‌های شما</b>\n"
-        + "\n".join(f"• <b>{escape(n)}</b> — {escape(s)}" for _, n, s in classes)
+        "🏫 <b>کلاس‌های شما</b>\\n"
+        + "\\n".join(
+            f"• <b>{escape(name)}</b> — {escape(school)}"
+            for _, name, school in classes
+        )
+        + (
+            "\\n\\nبرای کلاس‌هایی که مدیر آن هستید، مدیریت اتصال گروه از دکمه‌های زیر در دسترس است."
+            if rows
+            else ""
+        ),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None,
     )
 
 
