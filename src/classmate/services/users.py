@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from classmate.core.config import get_settings
 from classmate.db.models import User
 
 
@@ -13,6 +14,7 @@ async def ensure_user(
     private_chat_started: bool = False,
 ) -> User:
     """Get or create a user. Update profile fields when they change."""
+    is_bootstrap_admin = telegram_id in get_settings().bootstrap_admin_id_set
     user = await session.scalar(select(User).where(User.telegram_id == telegram_id))
 
     if user is None:
@@ -20,6 +22,7 @@ async def ensure_user(
             telegram_id=telegram_id,
             username=username,
             full_name=full_name[:160],
+            is_platform_admin=is_bootstrap_admin,
             private_chat_started=private_chat_started,
         )
         session.add(user)
@@ -28,6 +31,10 @@ async def ensure_user(
 
     if not user.is_active:
         raise PermissionError("حساب کاربری شما غیرفعال شده است.")
+
+    # Bootstrap admins are promoted from trusted deployment configuration only.
+    if is_bootstrap_admin and not user.is_platform_admin:
+        user.is_platform_admin = True
 
     # Keep profile fresh
     if username and user.username != username:
