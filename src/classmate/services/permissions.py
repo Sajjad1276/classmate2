@@ -218,6 +218,28 @@ async def is_class_manager(session: AsyncSession, user: User, class_id: int) -> 
     )
 
 
+async def issue_class_group_link_code(
+    session: AsyncSession,
+    *,
+    class_id: int,
+    actor: User,
+) -> tuple[str, ClassGroup, datetime]:
+    """Issue a one-time code for a class manager to connect a Telegram group."""
+    context = await get_class_with_school(session, class_id)
+    if context is None:
+        raise ValueError("کلاس یا مدرسهٔ فعال پیدا نشد.")
+    class_group = context[0]
+    if not await is_class_manager(session, actor, class_id):
+        raise PermissionError("فقط مدیر همین کلاس یا مدیر مدرسه می‌تواند گروه را متصل کند.")
+
+    code = make_code(24)
+    expires_at = code_expiry(minutes=15)
+    class_group.group_link_code_hash = hash_code(code)
+    class_group.group_link_code_expires_at = expires_at
+    await session.flush()
+    return code, class_group, expires_at
+
+
 async def can_approve(session: AsyncSession, user: User, class_id: int) -> bool:
     if not user.is_active or await get_class_with_school(session, class_id) is None:
         return False
