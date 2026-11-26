@@ -32,6 +32,23 @@ router = Router(name="group-link")
 LINE_BREAK = chr(10)
 
 
+
+def _requested_group_admin_rights() -> ChatAdministratorRights:
+    return ChatAdministratorRights(
+        is_anonymous=False,
+        can_manage_chat=True,
+        can_delete_messages=False,
+        can_manage_video_chats=False,
+        can_restrict_members=False,
+        can_promote_members=False,
+        can_change_info=False,
+        can_invite_users=False,
+        can_post_stories=False,
+        can_edit_stories=False,
+        can_delete_stories=False,
+    )
+
+
 def _cancel_group_link_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -261,7 +278,8 @@ async def select_group_for_class(
                 request_chat=KeyboardButtonRequestChat(
                     request_id=class_id,
                     chat_is_channel=False,
-                    user_administrator_rights=ChatAdministratorRights(can_manage_chat=True),
+                    user_administrator_rights=_requested_group_admin_rights(),
+                    bot_administrator_rights=_requested_group_admin_rights(),
                     bot_is_member=True,
                 ),
             )
