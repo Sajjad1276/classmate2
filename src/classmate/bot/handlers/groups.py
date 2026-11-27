@@ -101,7 +101,7 @@ async def _build_group_management_panel(
         status_button = []
     else:
         group_details = (
-            f"نام گروه: <b>{escape(class_group.group_chat_title or 'بدون عنوان')}</b>\\n"
+            f"نام گروه: <b>{escape(class_group.group_chat_title or 'بدون عنوان')}</b>\n"
             f"شناسه گروه: <code>{class_group.group_chat_id}</code>"
         )
         try:
@@ -131,11 +131,11 @@ async def _build_group_management_panel(
         ]]
 
     body = (
-        f"🛠 <b>مدیریت گروه کلاس {escape(class_group.name)}</b>\\n"
-        f"🏫 مدرسه: {escape(school.name)}\\n"
-        f"🎓 پایه: {escape(class_group.grade)}\\n\\n"
-        f"وضعیت اتصال: {connection_status}\\n"
-        f"{group_details}\\n\\n"
+        f"🛠 <b>مدیریت گروه کلاس {escape(class_group.name)}</b>\n"
+        f"🏫 مدرسه: {escape(school.name)}\n"
+        f"🎓 پایه: {escape(class_group.grade)}\n\n"
+        f"وضعیت اتصال: {connection_status}\n"
+        f"{group_details}\n\n"
         "از این پنل می‌توانید گروه متصل را جایگزین کنید یا وضعیت دسترسی ربات را دوباره بررسی کنید."
     )
     back_callback = (
@@ -401,7 +401,7 @@ async def select_group_for_class(
     # The inline management menu and the temporary reply-keyboard picker must
     # never be visible together.
     await callback.message.edit_text(
-        "📂 <b>انتخاب گروه کلاس</b>\\n\\n"
+        "📂 <b>انتخاب گروه کلاس</b>\n\n"
         "درخواست انتخاب گروه در پیام بعدی نمایش داده می‌شود. برای بازگشت، «لغو انتخاب» را بزنید.",
         reply_markup=None,
     )
@@ -531,7 +531,7 @@ async def group_chat_selected(
             origin=origin,
             page=origin_page,
             notice=(
-                f"❌ ثبت گروه انجام نشد: {escape(str(exc))}\\n"
+                f"❌ ثبت گروه انجام نشد: {escape(str(exc))}\n"
                 "دسترسی‌ها را بررسی کنید و از همین پنل دوباره تلاش کنید."
             ),
         )
@@ -561,10 +561,10 @@ async def group_chat_selected(
         await message.bot.send_message(
             chat_id=shared.chat_id,
             text=(
-                "✅ <b>ثبت گروه در ClassMate انجام شد</b>\\n"
-                f"🏫 کلاس: <b>{class_name}</b>\\n"
-                f"👥 گروه: <b>{group_title}</b>\\n"
-                f"👤 ثبت‌کننده: <a href=\"tg://user?id={actor.telegram_id}\">{actor_name}</a>\\n\\n"
+                "✅ <b>ثبت گروه در ClassMate انجام شد</b>\n"
+                f"🏫 کلاس: <b>{class_name}</b>\n"
+                f"👥 گروه: <b>{group_title}</b>\n"
+                f"👤 ثبت‌کننده: <a href=\"tg://user?id={actor.telegram_id}\">{actor_name}</a>\n\n"
                 "از این پس اطلاعیه‌ها و پیام‌های آموزشی این کلاس در همین گروه ارسال می‌شود."
             ),
             reply_markup=InlineKeyboardMarkup(
@@ -585,17 +585,17 @@ async def group_chat_selected(
         )
 
     confirmation = (
-        "✅ <b>گروه با موفقیت ثبت شد</b>\\n"
-        f"🏫 کلاس: <b>{class_name}</b>\\n"
-        f"👥 گروه: <b>{group_title}</b>\\n\\n"
+        "✅ <b>گروه با موفقیت ثبت شد</b>\n"
+        f"🏫 کلاس: <b>{class_name}</b>\n"
+        f"👥 گروه: <b>{group_title}</b>\n\n"
         "اتصال به‌صورت خودکار انجام شد و لینک عضویت دانش‌آموزان آماده است."
     )
     if not group_notice_sent:
         confirmation += (
-            "\\n\\n⚠️ اتصال ثبت شده، اما ارسال پیام تأیید داخل گروه ناموفق بود؛ "
+            "\n\n⚠️ اتصال ثبت شده، اما ارسال پیام تأیید داخل گروه ناموفق بود؛ "
             "دسترسی ارسال پیام ربات را بررسی کنید."
         )
-    confirmation += f"\\n\\n🔗 <a href=\"{student_url}\">لینک ورود دانش‌آموزان</a>"
+    confirmation += f"\n\n🔗 <a href=\"{student_url}\">لینک ورود دانش‌آموزان</a>"
 
     # Success feedback first; then return directly to the same group-management
     # panel. Do not append the main reply keyboard or a second back button.
