@@ -3,7 +3,7 @@
 import logging
 from html import escape
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -81,13 +81,13 @@ def _group_origin(parts: list[str]) -> tuple[str, int, str]:
 
 
 async def _build_group_management_panel(
-    bot,
+    bot: Bot,
     session: AsyncSession,
     class_id: int,
     origin: str,
     page: int,
     origin_suffix: str,
-):
+) -> tuple[str, InlineKeyboardMarkup] | None:
     """Build the single inline panel used before and after the group-picker flow."""
     context = await get_class_with_school(session, class_id)
     if context is None:
