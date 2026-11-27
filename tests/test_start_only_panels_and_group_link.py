@@ -125,7 +125,7 @@ async def test_my_classes_panel_shows_group_link_controls_only_to_managers(world
         for row in manager_markup.inline_keyboard
         for button in row
     ]
-    assert any(button.callback_data == f"group:manage:{world['class'].id}" for button in manager_buttons)
+    assert any(button.callback_data == f"group:manage:{world['class'].id}:classes:0" for button in manager_buttons)
 
     student_message = SimpleNamespace(
         chat=SimpleNamespace(type="private"),
@@ -275,6 +275,10 @@ async def test_group_management_panel_reflects_registration_state(world):
             username=manager.username,
             full_name=manager.full_name,
             first_name=manager.full_name,
+        ),
+        bot=SimpleNamespace(
+            get_me=AsyncMock(return_value=SimpleNamespace(id=90001)),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="administrator")),
         ),
         message=SimpleNamespace(
             chat=SimpleNamespace(type="private"),
