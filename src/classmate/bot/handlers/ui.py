@@ -97,32 +97,47 @@ async def menu_for(session: AsyncSession, user: User):
     return main_menu(is_owner=bool(user.is_platform_admin))
 
 
-async def ask_class(message: Message, session: AsyncSession, action: str, user: User) -> None:
+async def ask_class(
+    message: Message,
+    session: AsyncSession,
+    action: str,
+    user: User,
+    *,
+    back_callback: str | None = None,
+) -> None:
     classes = await classes_for_user(session, user)
     if not classes:
         await message.answer("هنوز عضو کلاسی نیستید. از «🔑 ورود با کد دعوت» استفاده کنید.")
         return
     if len(classes) == 1:
-        await run_view(message, session, action, classes[0][0], user)
+        await run_view(message, session, action, classes[0][0], user, back_callback=back_callback)
         return
     await render_panel(
-        message, "🏫 کلاس موردنظر را انتخاب کنید:", class_picker(classes, action=action)
+        message,
+        "🏫 کلاس موردنظر را انتخاب کنید:",
+        class_picker(classes, action=action, back_callback=back_callback),
     )
 
 
-async def _result(target: Message, text: str) -> None:
-    await render_panel(target, text, education_result_kb())
+async def _result(target: Message, text: str, back_callback: str | None = None) -> None:
+    await render_panel(target, text, education_result_kb(back_callback))
 
 
 async def run_view(
-    target: Message, session: AsyncSession, action: str, class_id: int, user: User, **_
+    target: Message,
+    session: AsyncSession,
+    action: str,
+    class_id: int,
+    user: User,
+    *,
+    back_callback: str | None = None,
 ) -> None:
     if not await user_can_access_class(session, user, class_id):
-        await _result(target, "دسترسی شما به این کلاس فعال نیست.")
+        await _result(target, "دسترسی شما به این کلاس فعال نیست.", back_callback)
         return
     ctx = await get_class_with_school(session, class_id)
     if ctx is None:
-        await _result(target, "کلاس موردنظر پیدا نشد.")
+        await _result(target, "کلاس موردنظر پیدا نشد.", back_callback)
         return
     cls, _, school = ctx
     today = datetime.now(ZoneInfo(school.timezone)).date()
@@ -174,7 +189,7 @@ async def run_view(
         )
     else:
         return
-    await _result(target, text)
+    await _result(target, text, back_callback)
 
 
 @router.message(F.text.in_({"❌ انصراف"}))
@@ -354,7 +369,13 @@ async def btn_reports(message: Message, session: AsyncSession) -> None:
         await ask_class(message, session, "today", await get_user(session, message.from_user, private=True))
 
 
-async def _open_calendar(message: Message, session: AsyncSession, user: User) -> None:
+async def _open_calendar(
+    message: Message,
+    session: AsyncSession,
+    user: User,
+    *,
+    back_callback: str | None = None,
+) -> None:
     classes = await classes_for_user(session, user)
     if not classes:
         await message.answer("هنوز عضو کلاسی نیستید. برای مشاهده تقویم، ابتدا با کد دعوت وارد یک کلاس شوید.")
@@ -363,7 +384,11 @@ async def _open_calendar(message: Message, session: AsyncSession, user: User) ->
 
         await _render_calendar(message, session, classes[0][0], classes[0][1])
     else:
-        await render_panel(message, "🏫 کلاس موردنظر برای مشاهده تقویم را انتخاب کنید:", class_picker(classes, action="calendar"))
+        await render_panel(
+            message,
+            "🏫 کلاس موردنظر برای مشاهده تقویم را انتخاب کنید:",
+            class_picker(classes, action="calendar", back_callback=back_callback),
+        )
 
 
 @router.message(F.text.in_({"🔑 ورود با کد دعوت", "عضویت با کد"}))
@@ -437,17 +462,40 @@ async def cb_information(callback: CallbackQuery, session: AsyncSession) -> None
     if callback.message is None or callback.message.chat.type != "private":
         await callback.answer("این بخش فقط در گفت‌وگوی خصوصی در دسترس است.", show_alert=True)
         return
-    action = callback.data.split(":", 1)[1]
+    _, action, *context = callback.data.split(":")
+    parent = context[0] if context else None
+    back_callback = {
+        "dashboard": "dashboard:today",
+        "menu": "info:menu",
+    }.get(parent)
     user = await get_user(session, callback.from_user, private=True)
-    if action == "calendar":
+    if action == "menu":
         await delete_panel(callback.message)
-        await _open_calendar(callback.message, session, user)
+        await callback.message.answer("📋 <b>اطلاعات کلاس</b>", reply_markup=information_menu())
+    elif action == "calendar":
+        await delete_panel(callback.message)
+        await _open_calendar(callback.message, session, user, back_callback=back_callback)
     elif action in {"exams", "homework", "reports"}:
         await delete_panel(callback.message)
-        await ask_class(callback.message, session, "today" if action == "reports" else action, user)
+        await ask_class(
+            callback.message,
+            session,
+            "today" if action == "reports" else action,
+            user,
+            back_callback=back_callback,
+        )
     elif action == "announcements":
         await delete_panel(callback.message)
-        await announcements(callback.message, session)
+        await announcements(callback.message, session, back_callback=back_callback)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "info:menu")
+async def cb_information_menu(callback: CallbackQuery) -> None:
+    if callback.message is None:
+        return
+    await delete_panel(callback.message)
+    await callback.message.answer("📋 <b>اطلاعات کلاس</b>", reply_markup=information_menu())
     await callback.answer()
 
 
@@ -483,8 +531,21 @@ async def cb_menu(callback: CallbackQuery, session: AsyncSession) -> None:
 async def cb_pick(callback: CallbackQuery, session: AsyncSession) -> None:
     if callback.message is None:
         return
-    _, action, id_s = callback.data.split(":", 2)
+    parts = callback.data.split(":")
+    _, action, id_s, *back_parts = parts
+    back_callback = {
+        "dashboard": "dashboard:today",
+        "info_menu": "info:menu",
+        "p1_dashboard": "p1:dashboard",
+    }.get(back_parts[0] if back_parts else None)
     user = await get_user(session, callback.from_user, private=True)
     await delete_panel(callback.message)
-    await run_view(callback.message, session, action, int(id_s), user)
+    await run_view(
+        callback.message,
+        session,
+        action,
+        int(id_s),
+        user,
+        back_callback=back_callback,
+    )
     await callback.answer()

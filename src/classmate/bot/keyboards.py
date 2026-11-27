@@ -31,6 +31,7 @@ def main_menu(*, is_owner: bool = False) -> ReplyKeyboardMarkup:
             KeyboardButton(text="🏫 کلاس‌های من"),
             KeyboardButton(text="🔔 اعلان‌ها"),
         ],
+        [KeyboardButton(text="🔑 ورود با کد دعوت", style="success")],
         [KeyboardButton(text="❓ راهنما"), KeyboardButton(text="🆘 پشتیبانی")],
     ]
     if is_owner:
@@ -56,14 +57,14 @@ def information_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="📅 تقویم کلاس", callback_data="info:calendar", style="primary"),
-                InlineKeyboardButton(text="📝 امتحانات", callback_data="info:exams", style="primary"),
+                InlineKeyboardButton(text="📅 تقویم کلاس", callback_data="info:calendar:menu", style="primary"),
+                InlineKeyboardButton(text="📝 امتحانات", callback_data="info:exams:menu", style="primary"),
             ],
             [
-                InlineKeyboardButton(text="📚 تکالیف", callback_data="info:homework", style="primary"),
-                InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports"),
+                InlineKeyboardButton(text="📚 تکالیف", callback_data="info:homework:menu", style="primary"),
+                InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports:menu"),
             ],
-            [InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements")],
+            [InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements:menu")],
             [InlineKeyboardButton(text="🔄 به‌روزرسانی", callback_data="dashboard:today")],
         ]
     )
@@ -75,23 +76,35 @@ def education_menu() -> InlineKeyboardMarkup:
     return information_menu()
 
 
-def education_result_kb() -> InlineKeyboardMarkup:
+def education_result_kb(back_callback: str | None = None) -> InlineKeyboardMarkup:
+    if back_callback is None:
+        return InlineKeyboardMarkup(inline_keyboard=[])
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="‹ بازگشت", callback_data="ui:back")],
+            [InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback)],
         ]
     )
 
 
 def class_picker(
-    classes: list[tuple[int, str, str]], *, action: str, page: int = 0, page_size: int = 8
+    classes: list[tuple[int, str, str]], *, action: str, back_callback: str | None = None,
+    page: int = 0, page_size: int = 8
 ) -> InlineKeyboardMarkup:
+    back_token = {
+        "dashboard:today": "dashboard",
+        "info:menu": "info_menu",
+        "p1:dashboard": "p1_dashboard",
+    }.get(back_callback)
     start = page * page_size
     rows = [
         [
             InlineKeyboardButton(
                 text=(f"{name} · {school}" if school else name)[:60],
-                callback_data=f"pick:{action}:{cid}",
+                callback_data=(
+                    f"pick:{action}:{cid}:{back_token}"
+                    if back_token
+                    else f"pick:{action}:{cid}"
+                ),
                 style="primary",
             )
         ]
@@ -108,5 +121,6 @@ def class_picker(
         )
     if nav:
         rows.append(nav)
-    rows.append([InlineKeyboardButton(text="‹ بازگشت", callback_data="ui:back")])
+    if back_callback is not None:
+        rows.append([InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)

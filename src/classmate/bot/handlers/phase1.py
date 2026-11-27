@@ -60,16 +60,16 @@ def dashboard_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="📅 تقویم کلاس", callback_data="info:calendar", style="primary"
+                    text="📅 تقویم کلاس", callback_data="info:calendar:dashboard", style="primary"
                 )
             ],
             [
-                InlineKeyboardButton(text="📝 امتحانات", callback_data="info:exams", style="primary"),
-                InlineKeyboardButton(text="📚 تکالیف", callback_data="info:homework", style="primary"),
+                InlineKeyboardButton(text="📝 امتحانات", callback_data="info:exams:dashboard", style="primary"),
+                InlineKeyboardButton(text="📚 تکالیف", callback_data="info:homework:dashboard", style="primary"),
             ],
             [
-                InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports"),
-                InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements"),
+                InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports:dashboard"),
+                InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements:dashboard"),
             ],
             [InlineKeyboardButton(text="🔔 تنظیم اعلان‌ها", callback_data="p1:preferences")],
             [InlineKeyboardButton(text="🔄 به‌روزرسانی", callback_data="dashboard:today")],
@@ -89,11 +89,12 @@ def dashboard_empty_kb() -> InlineKeyboardMarkup:
     )
 
 
-def announcement_kb() -> InlineKeyboardMarkup:
+def announcement_kb(back_callback: str | None = None) -> InlineKeyboardMarkup:
+    rows = []
+    if back_callback is not None:
+        rows.append([InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback)])
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="« بازگشت به داشبورد", callback_data="p1:dashboard")]
-        ]
+        inline_keyboard=rows
     )
 
 
@@ -223,7 +224,7 @@ async def calendar_entry(callback: CallbackQuery, session: AsyncSession) -> None
         await render_panel(
             callback.message,
             "🏫 کلاس موردنظر برای مشاهده تقویم را انتخاب کنید:",
-            class_picker(classes, action="calendar"),
+            class_picker(classes, action="calendar", back_callback="p1:dashboard"),
         )
     await callback.answer()
 
@@ -261,7 +262,7 @@ async def preferences_entry(callback: CallbackQuery, session: AsyncSession) -> N
         await render_panel(
             callback.message,
             "🏫 کلاس موردنظر برای تنظیم اعلان‌ها را انتخاب کنید:",
-            class_picker(classes, action="prefs"),
+            class_picker(classes, action="prefs", back_callback="p1:dashboard"),
         )
     await callback.answer()
 
@@ -436,7 +437,12 @@ async def toggle_preference(callback: CallbackQuery, session: AsyncSession) -> N
 
 
 @router.message(F.text.in_({"📣 اطلاعیه‌ها", "اطلاعیه‌ها"}))
-async def announcements(message: Message, session: AsyncSession) -> None:
+async def announcements(
+    message: Message,
+    session: AsyncSession,
+    *,
+    back_callback: str | None = None,
+) -> None:
     if message.chat.type != "private":
         return
     user = await get_user(session, message.from_user, private=message.chat.type == "private")
@@ -449,4 +455,4 @@ async def announcements(message: Message, session: AsyncSession) -> None:
         for item, cls in rows:
             parts.append(f"\n<b>{escape(item.title)}</b> — {escape(cls.name)}\n{escape(item.body)}")
         text = "\n".join(parts)
-    await render_panel(message, text, announcement_kb())
+    await render_panel(message, text, announcement_kb(back_callback))
