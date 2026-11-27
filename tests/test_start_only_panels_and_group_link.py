@@ -470,6 +470,9 @@ async def test_group_management_panel_shows_live_status_help_and_origin_back(wor
     callbacks = {button.callback_data for button in buttons}
 
     assert "وضعیت اتصال: ✅" in body
+    assert "\\n" not in body
+    assert "\n" in body
+    assert "نام گروه: <b>گروه متصل</b>" in body
     assert f"group:help:{class_group.id}:classes:2" in callbacks
     assert f"group:select:{class_group.id}:classes:2" in callbacks
     assert "ui:classes:2" in callbacks
