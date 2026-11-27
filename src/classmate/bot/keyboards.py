@@ -11,14 +11,10 @@ from aiogram.types import (
 def main_menu(*, is_owner: bool = False) -> ReplyKeyboardMarkup:
     """Keep only the four primary entry points on the persistent keyboard."""
     keyboard = [
-        [
-            KeyboardButton(text="📊 وضعیت امروز", style="primary"),
-            KeyboardButton(text="📚 بخش آموزشی", style="primary"),
-        ],
-        [
-            KeyboardButton(text="🏫 کلاس‌های من"),
-            KeyboardButton(text="🔑 ورود با کد دعوت", style="success"),
-        ],
+        [KeyboardButton(text="📊 وضعیت امروز", style="primary")],
+        [KeyboardButton(text="📚 بخش آموزشی", style="primary")],
+        [KeyboardButton(text="🏫 کلاس‌های من")],
+        [KeyboardButton(text="🔑 ورود با کد دعوت", style="success")],
         [KeyboardButton(text="🧰 امکانات بیشتر")],
     ]
     return ReplyKeyboardMarkup(
@@ -32,17 +28,15 @@ def more_menu(*, is_owner: bool = False) -> InlineKeyboardMarkup:
     """Secondary learner tools and owner-only operations."""
     rows = [
         [InlineKeyboardButton(text="🔔 تنظیم اعلان‌ها", callback_data="p1:preferences:more")],
-        [
-            InlineKeyboardButton(text="❓ راهنما", callback_data="more:help"),
-            InlineKeyboardButton(text="🆘 پشتیبانی", callback_data="more:support"),
-        ],
+        [InlineKeyboardButton(text="❓ راهنما", callback_data="more:help")],
+        [InlineKeyboardButton(text="🆘 پشتیبانی", callback_data="more:support")],
     ]
     if is_owner:
         rows.append(
-            [
-                InlineKeyboardButton(text="📢 پیام همگانی", callback_data="broadcast:start", style="primary"),
-                InlineKeyboardButton(text="🏫 مدیریت کلاس‌ها", callback_data="owner:classes:0", style="primary"),
-            ]
+            [InlineKeyboardButton(text="📢 پیام همگانی", callback_data="broadcast:start", style="primary")]
+        )
+        rows.append(
+            [InlineKeyboardButton(text="🏫 مدیریت کلاس‌ها", callback_data="owner:classes:0", style="primary")]
         )
     rows.append(
         [InlineKeyboardButton(text="‹ بازگشت به منوی اصلی", callback_data="ui:home", style="danger")]
@@ -61,14 +55,10 @@ def information_menu() -> InlineKeyboardMarkup:
     """Inline entry points for the read-only class information areas."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(text="📅 تقویم کلاس", callback_data="info:calendar:menu", style="primary"),
-                InlineKeyboardButton(text="📝 امتحانات", callback_data="info:exams:menu", style="primary"),
-            ],
-            [
-                InlineKeyboardButton(text="📚 تکالیف", callback_data="info:homework:menu", style="primary"),
-                InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports:menu"),
-            ],
+            [InlineKeyboardButton(text="📅 تقویم کلاس", callback_data="info:calendar:menu", style="primary")],
+            [InlineKeyboardButton(text="📝 امتحانات", callback_data="info:exams:menu", style="primary")],
+            [InlineKeyboardButton(text="📚 تکالیف", callback_data="info:homework:menu", style="primary")],
+            [InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports:menu")],
             [InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements:menu")],
             [InlineKeyboardButton(text="‹ بازگشت به منوی اصلی", callback_data="ui:home", style="danger")],
         ]
@@ -119,15 +109,13 @@ def class_picker(
     ]
     nav = []
     if page:
-        nav.append(
+        rows.append([
             InlineKeyboardButton(text="‹ صفحه قبل", callback_data=f"pickpage:{action}:{page - 1}")
-        )
+        ])
     if start + page_size < len(classes):
-        nav.append(
+        rows.append([
             InlineKeyboardButton(text="صفحه بعد ›", callback_data=f"pickpage:{action}:{page + 1}")
-        )
-    if nav:
-        rows.append(nav)
+        ])
     if back_callback is not None:
         rows.append([InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback, style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
