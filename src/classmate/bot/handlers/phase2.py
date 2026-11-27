@@ -34,7 +34,6 @@ from classmate.db.models import (
     User,
 )
 from classmate.domain.dates import jalali_date
-from classmate.services.outbox import enqueue_telegram_message
 from classmate.services.permissions import get_class_with_school, user_can_access_class
 from classmate.services.phase2 import (
     active_polls,
@@ -71,7 +70,7 @@ async def _require_private_message(message: Message, state: FSMContext | None = 
 
 
 def color_button(prefix: str, text: str, callback: str) -> InlineKeyboardButton:
-    """Use semantic prefixes and Telegram's supported button styles together."""
+    """Create an inline button with an emoji prefix and matching semantic style."""
     styles = {"🔴": "danger", "🟢": "success", "🔵": "primary", "🟡": "primary"}
     return InlineKeyboardButton(
         text=f"{prefix} {text}", callback_data=callback, style=styles.get(prefix)
@@ -86,6 +85,7 @@ async def submit_entry(message: Message, session: AsyncSession) -> None:
     classes = await classes_for_user(session, user)
     if not classes:
         await message.answer("ابتدا با کد دعوت عضو یک کلاس شوید.")
+        return
     elif len(classes) == 1:
         await _show_homeworks(message, session, classes[0][0])
     else:

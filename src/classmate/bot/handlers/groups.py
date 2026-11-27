@@ -32,7 +32,6 @@ router = Router(name="group-link")
 LINE_BREAK = chr(10)
 
 
-
 def _requested_group_admin_rights() -> ChatAdministratorRights:
     return ChatAdministratorRights(
         is_anonymous=False,
@@ -297,8 +296,6 @@ async def select_group_for_class(
         ]),
         reply_markup=picker,
     )
-
-
 
 
 @router.message(GroupLinkForm.selecting, F.text.in_({"❌ لغو انتخاب", "❌ انصراف"}))

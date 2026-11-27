@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.bot.handlers.ui import get_user
 from classmate.bot.keyboards import cancel_kb, main_menu
 from classmate.bot.states import BroadcastForm
+from classmate.core.config import get_settings
 from classmate.core.enums import OutboxStatus
 from classmate.db.models import TelegramOutbox, User
 from classmate.domain.dates import jalali_date
@@ -323,7 +324,8 @@ async def confirm_broadcast(
         })
 
     queued = 0
-    dialect = session.get_bind().dialect.name
+    db_url = get_settings().database_url
+    dialect = "postgresql" if "postgresql" in db_url else "sqlite" if "sqlite" in db_url else "other"
     for offset in range(0, len(rows), INSERT_BATCH_SIZE):
         chunk = rows[offset:offset + INSERT_BATCH_SIZE]
         if dialect == "postgresql":

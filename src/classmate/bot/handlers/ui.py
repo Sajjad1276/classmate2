@@ -225,7 +225,6 @@ async def btn_classes(message: Message, session: AsyncSession) -> None:
     )
 
 
-
 @router.message(F.text.in_({"🏫 کلاس‌ها", "مدیریت کلاس‌ها"}))
 async def owner_classes_message(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":

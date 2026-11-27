@@ -282,8 +282,6 @@ async def can_approve(session: AsyncSession, user: User, class_id: int) -> bool:
     )
 
 
-
-
 async def consume_class_member_join_code(
     session: AsyncSession,
     *,
