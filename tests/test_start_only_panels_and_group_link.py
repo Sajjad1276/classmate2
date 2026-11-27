@@ -260,6 +260,21 @@ async def test_group_selection_registers_automatically_and_notifies_both_chats(w
         "گروه با موفقیت ثبت شد" in call.args[0]
         for call in message.answer.await_args_list
     )
+    from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
+
+    answer_calls = message.answer.await_args_list
+    assert isinstance(answer_calls[0].kwargs["reply_markup"], ReplyKeyboardRemove)
+    assert isinstance(answer_calls[-1].kwargs["reply_markup"], InlineKeyboardMarkup)
+    assert not any(
+        isinstance(call.kwargs.get("reply_markup"), ReplyKeyboardMarkup)
+        for call in answer_calls
+    )
+    restored_buttons = [
+        button
+        for row in answer_calls[-1].kwargs["reply_markup"].inline_keyboard
+        for button in row
+    ]
+    assert any(button.text == "‹ بازگشت به فهرست کلاس‌ها" for button in restored_buttons)
 
 
 @pytest.mark.asyncio
