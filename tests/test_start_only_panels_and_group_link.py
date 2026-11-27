@@ -356,6 +356,7 @@ async def test_group_picker_exposes_cancel_and_requires_admin_membership(world):
         ),
         message=SimpleNamespace(
             chat=SimpleNamespace(type="private"),
+            edit_text=AsyncMock(),
             answer=AsyncMock(),
         ),
         answer=AsyncMock(),
@@ -549,3 +550,30 @@ async def test_cancel_group_picker_restores_only_previous_inline_panel(world):
         not isinstance(call.kwargs.get("reply_markup"), ReplyKeyboardMarkup)
         for call in message.answer.await_args_list
     )
+
+
+
+def test_primary_inline_menus_use_one_full_width_button_per_row():
+    from classmate.bot.keyboards import class_picker, information_menu, main_menu, more_menu
+    from classmate.bot.handlers.phase1 import dashboard_kb
+
+    menus = {
+        "main": main_menu(is_owner=True).keyboard,
+        "more": more_menu(is_owner=True).inline_keyboard,
+        "education": information_menu().inline_keyboard,
+        "dashboard": dashboard_kb().inline_keyboard,
+        "class_picker": class_picker(
+            [(1, "دهم", "مدرسه"), (2, "یازدهم", "مدرسه")],
+            action="calendar",
+            back_callback="ui:home",
+            page=0,
+            page_size=1,
+        ).inline_keyboard,
+    }
+
+    for menu_name, rows in menus.items():
+        assert rows, f"{menu_name} menu should not be empty"
+        assert all(len(row) == 1 for row in rows), (
+            f"{menu_name} menu has a multi-button row: "
+            f"{[[button.text for button in row] for row in rows]}"
+        )
