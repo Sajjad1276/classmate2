@@ -55,7 +55,7 @@ async def _require_private_message(message: Message, state: FSMContext) -> bool:
     return True
 
 
-def dashboard_kb(back_callback: str | None = None) -> InlineKeyboardMarkup:
+def dashboard_kb(back_callback: str | None = "ui:home") -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
@@ -71,14 +71,12 @@ def dashboard_kb(back_callback: str | None = None) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements:dashboard"),
         ],
         [InlineKeyboardButton(text="🔔 تنظیم اعلان‌ها", callback_data="p1:preferences")],
-        [InlineKeyboardButton(text="🔄 به‌روزرسانی", callback_data="dashboard:today")],
     ]
     if back_callback is not None:
-        rows.append([InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback, style="danger")])
-    return InlineKeyboardMarkup(
-        inline_keyboard=rows
-    )
-
+        rows.append(
+            [InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback, style="danger")]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def dashboard_empty_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -88,6 +86,7 @@ def dashboard_empty_kb() -> InlineKeyboardMarkup:
                     text="🔑 ورود با کد دعوت", callback_data="p1:join", style="success"
                 )
             ],
+            [InlineKeyboardButton(text="‹ بازگشت", callback_data="ui:home", style="danger")],
         ]
     )
 
@@ -455,7 +454,7 @@ async def announcements(
     message: Message,
     session: AsyncSession,
     *,
-    back_callback: str | None = "dashboard:today",
+    back_callback: str | None = "ui:home",
 ) -> None:
     if message.chat.type != "private":
         return

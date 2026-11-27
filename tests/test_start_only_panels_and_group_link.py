@@ -176,3 +176,122 @@ def test_only_start_is_registered_and_no_legacy_command_filters_remain():
     assert registered_commands
     assert set(registered_commands) == {"start"}
     assert command_filters == []
+
+
+
+def test_dashboard_and_class_picker_back_to_main_menu():
+    from classmate.bot.handlers.phase1 import dashboard_empty_kb, dashboard_kb
+    from classmate.bot.keyboards import class_picker
+
+    dashboard_buttons = [
+        button
+        for row in dashboard_kb().inline_keyboard
+        for button in row
+    ]
+    assert any(
+        button.text == "‹ بازگشت" and button.callback_data == "ui:home"
+        for button in dashboard_buttons
+    )
+    assert not any(button.callback_data == "dashboard:today" for button in dashboard_buttons)
+
+    empty_buttons = [
+        button
+        for row in dashboard_empty_kb().inline_keyboard
+        for button in row
+    ]
+    assert any(button.callback_data == "ui:home" for button in empty_buttons)
+
+    picker = class_picker([(7, "دهم", "مدرسه")], action="homework", back_callback="ui:home")
+    picker_buttons = [button for row in picker.inline_keyboard for button in row]
+    assert any(button.callback_data == "ui:home" for button in picker_buttons)
+    assert any(button.callback_data == "pick:homework:7:main_menu" for button in picker_buttons)
+
+
+@pytest.mark.asyncio
+async def test_group_selection_registers_automatically_and_notifies_both_chats(world):
+    from classmate.bot.handlers.groups import group_chat_selected
+
+    session = world["session"]
+    manager = world["manager"]
+    class_group = world["class"]
+    class_group_id = class_group.id
+    group_chat_id = -1001234567123
+
+    state = AsyncMock()
+    state.get_data.return_value = {"group_class_id": class_group_id}
+    user = SimpleNamespace(
+        id=manager.telegram_id,
+        username=manager.username,
+        full_name=manager.full_name,
+        first_name=manager.full_name,
+    )
+    bot_user = SimpleNamespace(id=999001, username="classmate_test_bot")
+    bot = SimpleNamespace(
+        get_chat=AsyncMock(
+            return_value=SimpleNamespace(type="supergroup", title="گروه آزمایشی")
+        ),
+        get_me=AsyncMock(return_value=bot_user),
+        get_chat_member=AsyncMock(
+            side_effect=[
+                SimpleNamespace(status="administrator"),
+                SimpleNamespace(status="administrator"),
+            ]
+        ),
+        send_message=AsyncMock(),
+    )
+    message = SimpleNamespace(
+        chat=SimpleNamespace(type="private", id=manager.telegram_id),
+        from_user=user,
+        chat_shared=SimpleNamespace(request_id=class_group_id, chat_id=group_chat_id),
+        bot=bot,
+        answer=AsyncMock(),
+    )
+
+    await group_chat_selected(message, state, session)
+
+    assert class_group.group_chat_id == group_chat_id
+    assert class_group.group_chat_title == "گروه آزمایشی"
+    assert class_group.group_link_code_hash is None
+    assert class_group.member_join_code_hash
+    state.clear.assert_awaited_once()
+    bot.send_message.assert_awaited_once()
+    assert "ثبت گروه در ClassMate" in bot.send_message.await_args.kwargs["text"]
+    assert any(
+        "گروه با موفقیت ثبت شد" in call.args[0]
+        for call in message.answer.await_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_group_management_panel_reflects_registration_state(world):
+    from classmate.bot.handlers.groups import group_manage_panel
+
+    manager = world["manager"]
+    class_group = world["class"]
+    callback = SimpleNamespace(
+        data=f"group:manage:{class_group.id}",
+        from_user=SimpleNamespace(
+            id=manager.telegram_id,
+            username=manager.username,
+            full_name=manager.full_name,
+            first_name=manager.full_name,
+        ),
+        message=SimpleNamespace(
+            chat=SimpleNamespace(type="private"),
+            edit_text=AsyncMock(),
+        ),
+        answer=AsyncMock(),
+    )
+
+    await group_manage_panel(callback, world["session"])
+    first_markup = callback.message.edit_text.await_args.kwargs["reply_markup"]
+    first_labels = [button.text for row in first_markup.inline_keyboard for button in row]
+    assert "📂 انتخاب گروه برای ثبت" in first_labels
+
+    class_group.group_chat_id = -1001234567124
+    class_group.group_chat_title = "گروه متصل"
+    callback.message.edit_text.reset_mock()
+    await group_manage_panel(callback, world["session"])
+    second_markup = callback.message.edit_text.await_args.kwargs["reply_markup"]
+    second_labels = [button.text for row in second_markup.inline_keyboard for button in row]
+    assert "🔄 تغییر گروه متصل" in second_labels

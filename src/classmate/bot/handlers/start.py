@@ -15,18 +15,24 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession) 
     await state.clear()
 
     if message.chat.type in {"group", "supergroup"}:
+        bot_info = await message.bot.get_me()
+        bot_url = f"https://t.me/{bot_info.username}" if bot_info.username else None
         await message.answer(
-            "برای اتصال این گروه به یک کلاس، مدیر گروه دکمهٔ زیر را انتخاب کند. "
-            "ربات باید مدیر گروه باشد.",
-            reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [
+            "✅ ربات ClassMate در این گروه فعال است.\n\n"
+            "برای ثبت خودکار این گروه، مدیر کلاس باید در گفت‌وگوی خصوصی ربات وارد «🏫 کلاس‌های من» شود، "
+            "گزینه «ثبت گروه» یا «مدیریت گروه» کلاس را باز کند و همین گروه را انتخاب کند.\n"
+            "تلگرام پس از بررسی مدیر بودن شما و ادمین بودن ربات، اتصال را ثبت می‌کند.",
+            reply_markup=(
+                InlineKeyboardMarkup(
+                    inline_keyboard=[[
                         InlineKeyboardButton(
-                            text="🔗 اتصال این گروه به کلاس",
-                            callback_data="group:link:start",
+                            text="⚙️ ادامه در گفت‌وگوی خصوصی ربات",
+                            url=bot_url,
+                            style="primary",
                         )
-                    ]
-                ]
+                    ]]
+                )
+                if bot_url else None
             ),
         )
         return

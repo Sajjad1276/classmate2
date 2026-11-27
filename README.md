@@ -23,8 +23,11 @@ docker compose up --build
 5. **📤 ارسال تکلیف** → submit text, a document or a photo
 6. **🆘 پشتیبانی** → direct support via `@Mizanup`
 
+## Group association
+Class managers can open **🏫 کلاس‌های من** → **ثبت گروه / مدیریت گروه** and choose a Telegram group from the private bot chat. The Telegram picker is configured to request the baseline administrator rights and to show groups where the user is an administrator and ClassMate is already a member. The bot then verifies both administrator statuses server-side, links the group automatically, and sends confirmation to the manager privately and in the group with the learner join link.
+
 ## Scope boundary
-This repository intentionally contains no platform-admin, school-admin, class-manager, content-authoring, approval/review, group-connection, scheduling-authoring or evaluation-management flows. Those capabilities are being developed independently in `classmatework`.
+ClassMate 2 keeps learner-facing education workflows and the minimum class-group association needed for class notifications. Platform-wide administration, school/class creation, content authoring, approval/review, scheduling authoring and evaluation management remain in the separate `classmatework` repository.
 
 ## Stack
 Python 3.12 · aiogram 3 · SQLAlchemy 2 · PostgreSQL · Redis · Docker

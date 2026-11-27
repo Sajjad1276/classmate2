@@ -65,7 +65,7 @@ def information_menu() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports:menu"),
             ],
             [InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements:menu")],
-            [InlineKeyboardButton(text="🔄 به‌روزرسانی", callback_data="dashboard:today")],
+            [InlineKeyboardButton(text="‹ بازگشت به منوی اصلی", callback_data="ui:home", style="danger")],
         ]
     )
 
@@ -94,6 +94,7 @@ def class_picker(
         "dashboard:today": "dashboard",
         "info:menu": "info_menu",
         "p1:dashboard": "p1_dashboard",
+        "ui:home": "main_menu",
     }.get(back_callback)
     start = page * page_size
     rows = [

@@ -1,5 +1,8 @@
 """Panel-driven, permission-checked Telegram group linking."""
 
+import logging
+from html import escape
+
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import CommandStart
@@ -17,7 +20,7 @@ from aiogram.types import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from classmate.bot.handlers.ui import get_user
+from classmate.bot.handlers.ui import get_user, menu_for
 from classmate.bot.states import GroupLinkForm
 from classmate.services.permissions import (
     connect_group_by_code,
@@ -29,6 +32,7 @@ from classmate.services.permissions import (
 )
 
 router = Router(name="group-link")
+logger = logging.getLogger(__name__)
 LINE_BREAK = chr(10)
 
 
@@ -62,16 +66,18 @@ def _cancel_group_link_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-@router.callback_query(F.data.regexp(r"^group:manage:[0-9]+$"))
+@router.callback_query(F.data.regexp(r"^group:manage:[0-9]+(?::owner)?$"))
 async def group_manage_panel(
     callback: CallbackQuery,
     session: AsyncSession,
 ) -> None:
     if callback.message is None or callback.message.chat.type != "private":
-        await callback.answer("مدیریت اتصال گروه فقط از پنل خصوصی امکان‌پذیر است.", show_alert=True)
+        await callback.answer("مدیریت گروه فقط از گفت‌وگوی خصوصی امکان‌پذیر است.", show_alert=True)
         return
 
-    class_id = int((callback.data or "").rsplit(":", maxsplit=1)[-1])
+    parts = (callback.data or "").split(":")
+    class_id = int(parts[2])
+    return_to_owner = len(parts) > 3 and parts[3] == "owner"
     actor = await get_user(session, callback.from_user, private=True)
     context = await get_class_with_school(session, class_id)
     if context is None:
@@ -82,20 +88,27 @@ async def group_manage_panel(
         await callback.answer("فقط مدیر کلاس یا مدیر مدرسه می‌تواند این بخش را باز کند.", show_alert=True)
         return
 
-    current_group = (
-        f"گروه فعلی: <b>{class_group.group_chat_title or class_group.group_chat_id}</b>\n"
-        f"شناسه گروه: <code>{class_group.group_chat_id}</code>\n\n"
-        if class_group.group_chat_id is not None
-        else "هنوز گروهی به این کلاس متصل نشده است.\n\n"
-    )
+    if class_group.group_chat_id is not None:
+        group_status = (
+            f"گروه متصل: <b>{escape(class_group.group_chat_title or str(class_group.group_chat_id))}</b>\n"
+            f"شناسه گروه: <code>{class_group.group_chat_id}</code>\n\n"
+        )
+        action_text = "🔄 تغییر گروه متصل"
+    else:
+        group_status = "هنوز گروهی به این کلاس متصل نشده است.\n\n"
+        action_text = "📂 انتخاب گروه برای ثبت"
+
     body = (
-        f"🔗 <b>اتصال گروه کلاس {class_group.name}</b>\n"
-        f"مدرسه: {school.name}\n"
-        f"پایه: {class_group.grade}\n\n"
-        f"{current_group}"
-        "برای اتصال یا جایگزینی گروه، کد یک‌بارمصرف صادر کنید. "
-        "کد فقط ۱۵ دقیقه اعتبار دارد."
+        f"🛠 <b>مدیریت گروه کلاس {escape(class_group.name)}</b>\n"
+        f"مدرسه: {escape(school.name)}\n"
+        f"پایه: {escape(class_group.grade)}\n\n"
+        f"{group_status}"
+        "برای ثبت یا تغییر گروه، ربات باید در گروه عضو و مدیر باشد و شما نیز مدیر همان گروه باشید. "
+        "تلگرام فقط گروه‌هایی را نمایش می‌دهد که این دسترسی‌ها را داشته باشند؛ پس از انتخاب، اتصال خودکار ثبت می‌شود."
     )
+    back_callback = f"owner:class:{class_id}" if return_to_owner else "ui:classes"
+    back_text = "‹ بازگشت به مشخصات کلاس" if return_to_owner else "‹ بازگشت به کلاس‌های من"
+
     await callback.answer()
     await callback.message.edit_text(
         body,
@@ -103,66 +116,21 @@ async def group_manage_panel(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="🔑 صدور کد اتصال گروه",
-                        callback_data=f"group:issue:{class_id}",
+                        text=action_text,
+                        callback_data=f"group:select:{class_id}",
+                        style="success",
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        text="⬅️ بازگشت به کلاس‌های من",
-                        callback_data="ui:home",
+                        text=back_text,
+                        callback_data=back_callback,
                         style="danger",
                     )
                 ],
             ]
         ),
     )
-
-
-@router.callback_query(F.data.regexp(r"^group:issue:[0-9]+$"))
-async def group_issue_code(
-    callback: CallbackQuery,
-    session: AsyncSession,
-) -> None:
-    if callback.message is None or callback.message.chat.type != "private":
-        await callback.answer("صدور کد اتصال فقط از پنل خصوصی امکان‌پذیر است.", show_alert=True)
-        return
-
-    class_id = int((callback.data or "").rsplit(":", maxsplit=1)[-1])
-    actor = await get_user(session, callback.from_user, private=True)
-    try:
-        code, class_group, expires_at = await issue_class_group_link_code(
-            session,
-            class_id=class_id,
-            actor=actor,
-        )
-    except (ValueError, PermissionError) as exc:
-        await callback.answer(str(exc), show_alert=True)
-        return
-
-    await callback.answer("کد اتصال صادر شد.")
-    await callback.message.edit_text(
-        f"🔐 <b>کد اتصال گروه · {class_group.name}</b>\n\n"
-        f"<code>{code}</code>\n\n"
-        "۱. ربات ClassMate را به گروه مقصد اضافه کنید و مدیر کنید.\n"
-        "۲. در همان گروه فقط یک بار دستور /start را بفرستید.\n"
-        "۳. دکمهٔ «اتصال این گروه به کلاس» را بزنید و این کد را ارسال کنید.\n\n"
-        f"کد تا ساعت {expires_at.strftime('%H:%M')} اعتبار دارد و فقط یک بار قابل استفاده است.\n"
-        "اتصال گروه قبلی این کلاس با اتصال جدید جایگزین می‌شود.",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="⬅️ بازگشت به مدیریت گروه",
-                        callback_data=f"group:manage:{class_id}",
-                        style="danger",
-                    )
-                ]
-            ]
-        ),
-    )
-
 
 @router.callback_query(F.data == "group:link:start")
 async def group_link_start(
@@ -293,18 +261,25 @@ async def select_group_for_class(
     await callback.message.answer(
         LINE_BREAK.join([
             "📂 <b>انتخاب گروه کلاس</b>",
-            "گروه موردنظر را از فهرست گروه‌های تلگرام انتخاب کنید. "
-            "برای اتصال، شما باید مدیر گروه باشید و ربات نیز باید در گروه عضو و مدیر باشد.",
-            "پس از انتخاب، پیش‌نیازها بررسی می‌شوند و قبل از ثبت نهایی، خلاصه عملیات را می‌بینید.",
+            "ابتدا ربات ClassMate را به گروه اضافه و مدیر کنید؛ سپس همین‌جا گروه را انتخاب کنید.",
+            "دسترسی‌های لازم از قبل در درخواست تلگرام تنظیم شده‌اند. فقط گروه‌هایی نمایش داده می‌شوند که شما مدیر آن باشید و ربات نیز در آن مدیر باشد.",
+            "بعد از انتخاب، گروه بدون کد و تأیید مرحلهٔ دوم به همین کلاس متصل می‌شود و نتیجه هم در گفت‌وگوی خصوصی و هم داخل گروه ارسال خواهد شد.",
         ]),
         reply_markup=picker,
     )
 
-
 @router.message(GroupLinkForm.selecting, F.text.in_({"❌ لغو انتخاب", "❌ انصراف"}))
-async def cancel_group_picker_message(message: Message, state: FSMContext) -> None:
+async def cancel_group_picker_message(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+) -> None:
     await state.clear()
     await message.answer("انتخاب گروه لغو شد.", reply_markup=ReplyKeyboardRemove())
+    if message.from_user is not None:
+        actor = await get_user(session, message.from_user, private=True)
+        await message.answer("\u2063", reply_markup=await menu_for(session, actor))
+
 
 @router.message(GroupLinkForm.selecting, F.chat_shared)
 async def group_chat_selected(
@@ -315,159 +290,158 @@ async def group_chat_selected(
     shared = message.chat_shared
     data = await state.get_data()
     class_id = data.get("group_class_id")
-    if not class_id or shared.request_id != int(class_id):
-        await message.answer("درخواست انتخاب گروه معتبر نیست؛ دوباره از پنل کلاس اقدام کنید.")
+
+    async def restore_menu(actor=None, notice: str | None = None) -> None:
         await state.clear()
+        if notice:
+            await message.answer(notice, reply_markup=ReplyKeyboardRemove())
+        else:
+            await message.answer("\u2063", reply_markup=ReplyKeyboardRemove())
+        if actor is None and message.from_user is not None:
+            actor = await get_user(session, message.from_user, private=True)
+        if actor is not None:
+            await message.answer("\u2063", reply_markup=await menu_for(session, actor))
+
+    if message.chat.type != "private" or message.from_user is None:
+        await state.clear()
+        await message.answer("انتخاب گروه فقط از گفت‌وگوی خصوصی ربات انجام می‌شود.")
         return
+    if not class_id or shared.request_id != int(class_id):
+        await restore_menu(
+            notice="درخواست انتخاب گروه معتبر نیست؛ دوباره از مدیریت همان کلاس اقدام کنید."
+        )
+        return
+
     actor = await get_user(session, message.from_user, private=True)
     if not await is_class_manager(session, actor, int(class_id)):
-        await message.answer("دسترسی مدیریت این کلاس برای حساب شما فعال نیست.")
-        await state.clear()
+        await restore_menu(actor, "دسترسی مدیریت این کلاس برای حساب شما فعال نیست.")
         return
+
     try:
         chat = await message.bot.get_chat(shared.chat_id)
         bot_user = await message.bot.get_me()
-        bot_member = await message.bot.get_chat_member(chat_id=shared.chat_id, user_id=bot_user.id)
+        bot_member = await message.bot.get_chat_member(
+            chat_id=shared.chat_id,
+            user_id=bot_user.id,
+        )
         actor_member = await message.bot.get_chat_member(
-            chat_id=shared.chat_id, user_id=message.from_user.id
+            chat_id=shared.chat_id,
+            user_id=message.from_user.id,
         )
-    except TelegramAPIError:
-        await message.answer(
-            "❌ بررسی گروه ناموفق بود. ربات را به گروه اضافه و مدیر کنید، سپس دوباره انتخاب کنید.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        await state.clear()
-        return
 
-    if chat.type not in {"group", "supergroup"} or shared.chat_id >= 0:
-        await message.answer("فقط گروه یا سوپرگروه تلگرام قابل ثبت است.", reply_markup=ReplyKeyboardRemove())
-        await state.clear()
-        return
-    if bot_member.status not in {"administrator", "creator"}:
-        await message.answer(
-            "❌ پیش‌نیاز ناقص است: ربات باید در گروه مدیر باشد.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        await state.clear()
-        return
-    if actor_member.status not in {"administrator", "creator"}:
-        await message.answer(
-            "❌ پیش‌نیاز ناقص است: حساب شما مدیر این گروه نیست.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        await state.clear()
-        return
-
-    class_context = await get_class_with_school(session, int(class_id))
-    if class_context is None:
-        await message.answer("کلاس دیگر فعال نیست؛ عملیات لغو شد.", reply_markup=ReplyKeyboardRemove())
-        await state.clear()
-        return
-    class_name = class_context[0].name
-    title = chat.title or str(shared.chat_id)
-    await state.update_data(pending_group_chat_id=shared.chat_id, pending_group_title=title, pending_class_name=class_name)
-    await message.answer(
-        LINE_BREAK.join([
-            "🧾 <b>پیش‌نمایش ثبت گروه</b>",
-            f"🏫 کلاس: <b>{class_name}</b>",
-            f"👥 گروه: <b>{title}</b>",
-            "🤖 ربات: مدیر گروه است ✓",
-            "👤 شما: مدیر گروه هستید ✓",
-            "با تأیید، این گروه به کلاس متصل می‌شود و لینک ورود دانش‌آموزان ساخته خواهد شد. "
-            "کد ورود قبلی کلاس در صورت وجود با کد تازه جایگزین می‌شود.",
-            "ثبت هنوز انجام نشده است.",
-        ]),
-        reply_markup=ReplyKeyboardRemove(),
-    )
-    await message.answer(
-        "برای ثبت این اتصال، تأیید نهایی را انتخاب کنید:",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ تأیید و ثبت گروه", callback_data="group:select:confirm", style="success")],
-            [InlineKeyboardButton(text="❌ انصراف", callback_data="group:select:cancel", style="danger")],
-        ]),
-    )
-
-
-@router.callback_query(F.data == "group:select:cancel")
-async def cancel_group_selection(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
-    await callback.answer("عملیات لغو شد.")
-    if callback.message is not None:
-        await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer("ثبت گروه لغو شد.")
-
-
-@router.callback_query(F.data == "group:select:confirm")
-async def confirm_group_selection(
-    callback: CallbackQuery,
-    state: FSMContext,
-    session: AsyncSession,
-) -> None:
-    if callback.message is None or callback.message.chat.type != "private":
-        await callback.answer("تأیید فقط از پنل خصوصی امکان‌پذیر است.", show_alert=True)
-        return
-    data = await state.get_data()
-    class_id = data.get("group_class_id")
-    chat_id = data.get("pending_group_chat_id")
-    title = data.get("pending_group_title")
-    if not class_id or not chat_id or not title:
-        await callback.answer("اطلاعات انتخاب گروه منقضی شده است؛ دوباره تلاش کنید.", show_alert=True)
-        await state.clear()
-        return
-
-    actor = await get_user(session, callback.from_user, private=True)
-    if not await is_class_manager(session, actor, int(class_id)):
-        await callback.answer("دسترسی مدیریت این کلاس برای شما فعال نیست.", show_alert=True)
-        await state.clear()
-        return
-    try:
-        bot_user = await callback.bot.get_me()
-        bot_member = await callback.bot.get_chat_member(chat_id=int(chat_id), user_id=bot_user.id)
-        actor_member = await callback.bot.get_chat_member(
-            chat_id=int(chat_id), user_id=callback.from_user.id
-        )
+        if chat.type not in {"group", "supergroup"} or shared.chat_id >= 0:
+            raise ValueError("فقط گروه یا سوپرگروه تلگرام قابل ثبت است.")
         if bot_member.status not in {"administrator", "creator"}:
-            raise PermissionError("ربات دیگر مدیر گروه نیست.")
+            raise PermissionError("ربات باید پیش از انتخاب، در گروه مدیر شده باشد.")
         if actor_member.status not in {"administrator", "creator"}:
-            raise PermissionError("شما دیگر مدیر این گروه نیستید.")
-        bot_info = await callback.bot.get_me()
+            raise PermissionError("فقط مدیر یا مالک همان گروه می‌تواند آن را به کلاس متصل کند.")
+
+        class_context = await get_class_with_school(session, int(class_id))
+        if class_context is None:
+            raise ValueError("کلاس یا مدرسه دیگر فعال نیست.")
+        title = chat.title or str(shared.chat_id)
+
+        # Create and consume the one-time token internally: no manual copy/paste step.
         async with session.begin_nested():
             code, _, _ = await issue_class_group_link_code(
-                session, class_id=int(class_id), actor=actor
+                session,
+                class_id=int(class_id),
+                actor=actor,
             )
-            linked = await connect_group_by_code(
+            linked_class = await connect_group_by_code(
                 session,
                 code=code,
-                chat_id=int(chat_id),
-                chat_title=str(title),
+                chat_id=int(shared.chat_id),
+                chat_title=title,
                 actor=actor,
                 bot_is_admin=True,
                 actor_is_admin=True,
             )
             student_code = make_code(12)
-            linked.member_join_code_hash = hash_code(student_code)
-            linked.member_join_code_expires_at = None
+            linked_class.member_join_code_hash = hash_code(student_code)
+            linked_class.member_join_code_expires_at = None
         await session.commit()
     except (TelegramAPIError, PermissionError, ValueError) as exc:
-        await callback.answer(str(exc)[:180], show_alert=True)
+        await restore_menu(
+            actor,
+            f"❌ ثبت گروه انجام نشد: {escape(str(exc))}\n"
+            "دسترسی‌ها را بررسی کنید و از بخش مدیریت گروه دوباره تلاش کنید.",
+        )
         return
 
     await state.clear()
-    await callback.answer("گروه با موفقیت ثبت شد.")
-    await callback.message.edit_text(
-        LINE_BREAK.join([
-            "✨ <b>اتصال گروه با موفقیت ثبت شد</b> ✨",
-            f"🏫 کلاس: <b>{linked.name}</b>",
-            f"👥 گروه: <b>{title}</b>",
-            "🔐 پیش‌نیازهای اتصال بررسی و تأیید شدند.",
-            "🎓 لینک عضویت دانش‌آموزان آماده است.",
-            "دانش‌آموزان با زدن دکمه زیر وارد ربات می‌شوند و عضویت آن‌ها در همین کلاس ثبت خواهد شد.",
-        ]),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text="🚀 ورود به کلاس به‌عنوان دانش‌آموز",
-                url=f"https://t.me/{bot_info.username}?start=join_{student_code}",
-                style="success",
-            )
-        ]]),
+    bot_username = bot_user.username
+    if not bot_username:
+        await message.answer(
+            "گروه در سامانه ثبت شد، اما نام کاربری ربات برای ساخت لینک عضویت در دسترس نیست."
+        )
+        await message.answer("\u2063", reply_markup=await menu_for(session, actor))
+        return
+
+    student_url = f"https://t.me/{bot_username}?start=join_{student_code}"
+    class_name = escape(linked_class.name)
+    group_title = escape(title)
+    actor_name = escape(actor.full_name or "مدیر گروه")
+    group_notice_sent = True
+    try:
+        await message.bot.send_message(
+            chat_id=shared.chat_id,
+            text=(
+                "✅ <b>ثبت گروه در ClassMate انجام شد</b>\n"
+                f"🏫 کلاس: <b>{class_name}</b>\n"
+                f"👥 گروه: <b>{group_title}</b>\n"
+                f"👤 ثبت‌کننده: <a href=\"tg://user?id={actor.telegram_id}\">{actor_name}</a>\n\n"
+                "از این پس اطلاعیه‌ها و پیام‌های آموزشی این کلاس در همین گروه ارسال می‌شود."
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🎓 ورود دانش‌آموزان به کلاس",
+                            url=student_url,
+                            style="success",
+                        )
+                    ]
+                ]
+            ),
+        )
+    except TelegramAPIError:
+        group_notice_sent = False
+        logger.exception(
+            "Group was linked but confirmation could not be posted",
+            extra={"class_id": int(class_id), "chat_id": int(shared.chat_id)},
+        )
+
+    confirmation = (
+        "✅ <b>گروه با موفقیت ثبت شد</b>\n"
+        f"🏫 کلاس: <b>{class_name}</b>\n"
+        f"👥 گروه: <b>{group_title}</b>\n\n"
+        "اتصال به‌صورت خودکار انجام شد و لینک عضویت دانش‌آموزان آماده است."
     )
+    if not group_notice_sent:
+        confirmation += (
+            "\n\n⚠️ اتصال ثبت شده، اما ارسال پیام تأیید داخل گروه ناموفق بود؛ "
+            "دسترسی ارسال پیام ربات را بررسی کنید."
+        )
+
+    await message.answer(
+        confirmation,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🎓 لینک ورود دانش‌آموزان",
+                        url=student_url,
+                        style="success",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🛠 مدیریت گروه",
+                        callback_data=f"group:manage:{int(class_id)}",
+                    )
+                ],
+            ]
+        ),
+    )
+    await message.answer("\u2063", reply_markup=await menu_for(session, actor))
