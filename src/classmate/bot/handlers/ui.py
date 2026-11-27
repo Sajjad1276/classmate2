@@ -383,7 +383,7 @@ async def btn_exams(message: Message, session: AsyncSession) -> None:
             session,
             "exams",
             await get_user(session, message.from_user, private=True),
-            back_callback="dashboard:today",
+            back_callback="ui:home",
         )
 
 
@@ -395,7 +395,7 @@ async def btn_homework(message: Message, session: AsyncSession) -> None:
             session,
             "homework",
             await get_user(session, message.from_user, private=True),
-            back_callback="dashboard:today",
+            back_callback="ui:home",
         )
 
 
@@ -407,7 +407,7 @@ async def btn_reports(message: Message, session: AsyncSession) -> None:
             session,
             "today",
             await get_user(session, message.from_user, private=True),
-            back_callback="dashboard:today",
+            back_callback="ui:home",
         )
 
 
