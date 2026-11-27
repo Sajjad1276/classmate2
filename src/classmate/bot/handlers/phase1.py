@@ -62,14 +62,10 @@ def dashboard_kb(back_callback: str | None = "ui:home") -> InlineKeyboardMarkup:
                 text="📅 تقویم کلاس", callback_data="info:calendar:dashboard", style="primary"
             )
         ],
-        [
-            InlineKeyboardButton(text="📝 امتحانات", callback_data="info:exams:dashboard", style="primary"),
-            InlineKeyboardButton(text="📚 تکالیف", callback_data="info:homework:dashboard", style="primary"),
-        ],
-        [
-            InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports:dashboard"),
-            InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements:dashboard"),
-        ],
+        [InlineKeyboardButton(text="📝 امتحانات", callback_data="info:exams:dashboard", style="primary")],
+        [InlineKeyboardButton(text="📚 تکالیف", callback_data="info:homework:dashboard", style="primary")],
+        [InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports:dashboard")],
+        [InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements:dashboard")],
         [InlineKeyboardButton(text="🔔 تنظیم اعلان‌ها", callback_data="p1:preferences")],
     ]
     if back_callback is not None:
