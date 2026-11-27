@@ -357,3 +357,4 @@ async def test_group_picker_exposes_cancel_and_requires_admin_membership(world):
     assert request_button.request_chat.bot_is_member is True
     assert request_button.request_chat.user_administrator_rights.can_manage_chat is True
     assert request_button.request_chat.bot_administrator_rights.can_manage_chat is True
+    assert request_button.request_chat.bot_administrator_rights.can_send_welcome_messages is False
