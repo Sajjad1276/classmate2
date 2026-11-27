@@ -553,12 +553,14 @@ async def test_cancel_group_picker_restores_only_previous_inline_panel(world):
 
 
 
-def test_primary_inline_menus_use_one_full_width_button_per_row():
+def test_inline_menus_use_one_full_width_button_per_row_and_main_menu_keeps_original_layout():
     from classmate.bot.keyboards import class_picker, information_menu, main_menu, more_menu
     from classmate.bot.handlers.phase1 import dashboard_kb
 
-    menus = {
-        "main": main_menu(is_owner=True).keyboard,
+    main_rows = main_menu(is_owner=True).keyboard
+    assert [len(row) for row in main_rows] == [2, 2, 1]
+
+    inline_menus = {
         "more": more_menu(is_owner=True).inline_keyboard,
         "education": information_menu().inline_keyboard,
         "dashboard": dashboard_kb().inline_keyboard,
@@ -571,7 +573,7 @@ def test_primary_inline_menus_use_one_full_width_button_per_row():
         ).inline_keyboard,
     }
 
-    for menu_name, rows in menus.items():
+    for menu_name, rows in inline_menus.items():
         assert rows, f"{menu_name} menu should not be empty"
         assert all(len(row) == 1 for row in rows), (
             f"{menu_name} menu has a multi-button row: "
