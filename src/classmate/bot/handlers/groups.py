@@ -67,7 +67,20 @@ def _cancel_group_link_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-@router.callback_query(F.data.regexp(r"^group:manage:[0-9]+(?::owner)?$"))
+def _group_origin(parts: list[str]) -> tuple[str, int, str]:
+    if len(parts) > 3 and parts[3] == "owner":
+        return "owner", 0, ":owner"
+    if len(parts) > 4 and parts[3] == "classes":
+        try:
+            page = max(0, int(parts[4]))
+        except ValueError:
+            page = 0
+        suffix = f":classes:{page}" if page else ""
+        return "classes", page, suffix
+    return "classes", 0, ""
+
+
+@router.callback_query(F.data.regexp(r"^group:manage:[0-9]+(?::owner|:classes:[0-9]+)?$"))
 async def group_manage_panel(
     callback: CallbackQuery,
     session: AsyncSession,
@@ -78,7 +91,7 @@ async def group_manage_panel(
 
     parts = (callback.data or "").split(":")
     class_id = int(parts[2])
-    return_to_owner = len(parts) > 3 and parts[3] == "owner"
+    origin, page, origin_suffix = _group_origin(parts)
     actor = await get_user(session, callback.from_user, private=True)
     context = await get_class_with_school(session, class_id)
     if context is None:
@@ -89,49 +102,130 @@ async def group_manage_panel(
         await callback.answer("فقط مدیر کلاس یا مدیر مدرسه می‌تواند این بخش را باز کند.", show_alert=True)
         return
 
-    if class_group.group_chat_id is not None:
-        group_status = (
-            f"گروه متصل: <b>{escape(class_group.group_chat_title or str(class_group.group_chat_id))}</b>\n"
-            f"شناسه گروه: <code>{class_group.group_chat_id}</code>\n\n"
-        )
-        action_text = "🔄 تغییر گروه متصل"
+    if class_group.group_chat_id is None:
+        connection_status = "⚪️ <b>ثبت نشده</b>"
+        group_details = "هنوز گروهی به این کلاس متصل نشده است."
+        action_text = "➕ اتصال گروه"
+        status_button = []
     else:
-        group_status = "هنوز گروهی به این کلاس متصل نشده است.\n\n"
-        action_text = "📂 انتخاب گروه برای ثبت"
+        group_details = (
+            f"نام گروه: <b>{escape(class_group.group_chat_title or 'بدون عنوان')}</b>\n"
+            f"شناسه گروه: <code>{class_group.group_chat_id}</code>"
+        )
+        try:
+            bot_user = await callback.bot.get_me()
+            bot_member = await callback.bot.get_chat_member(
+                chat_id=class_group.group_chat_id,
+                user_id=bot_user.id,
+            )
+            if bot_member.status in {"administrator", "creator"}:
+                connection_status = "✅ <b>فعال</b> — ربات دسترسی مدیر دارد."
+            elif bot_member.status in {"member", "restricted"}:
+                connection_status = "⚠️ <b>نیازمند دسترسی</b> — ربات عضو گروه است اما مدیر نیست."
+            else:
+                connection_status = "🔴 <b>قطع شده</b> — ربات دیگر عضو گروه نیست."
+        except TelegramAPIError:
+            connection_status = "⚠️ <b>قابل بررسی نیست</b> — دسترسی تلگرام برای بررسی وضعیت کافی نیست."
+            logger.exception(
+                "Could not inspect linked Telegram group",
+                extra={"class_id": class_id, "chat_id": class_group.group_chat_id},
+            )
+        action_text = "🔄 تغییر گروه متصل"
+        status_button = [
+            [
+                InlineKeyboardButton(
+                    text="🔄 بررسی مجدد اتصال",
+                    callback_data=f"group:manage:{class_id}{origin_suffix}",
+                )
+            ]
+        ]
 
     body = (
         f"🛠 <b>مدیریت گروه کلاس {escape(class_group.name)}</b>\n"
-        f"مدرسه: {escape(school.name)}\n"
-        f"پایه: {escape(class_group.grade)}\n\n"
-        f"{group_status}"
-        "برای ثبت یا تغییر گروه، کافی است ربات عضو گروه باشد و شما مالک یا مدیر همان گروه باشید. "
-        "هنگام انتخاب، تلگرام دسترسی‌های پایهٔ مدیر را به ربات اعطا می‌کند؛ پس از بررسی دسترسی‌ها، اتصال خودکار ثبت می‌شود."
+        f"🏫 مدرسه: {escape(school.name)}\n"
+        f"🎓 پایه: {escape(class_group.grade)}\n\n"
+        f"وضعیت اتصال: {connection_status}\n"
+        f"{group_details}\n\n"
+        "از این پنل می‌توانید گروه متصل را جایگزین کنید یا وضعیت دسترسی ربات را دوباره بررسی کنید."
     )
-    back_callback = f"owner:class:{class_id}" if return_to_owner else "ui:classes"
-    back_text = "‹ بازگشت به مشخصات کلاس" if return_to_owner else "‹ بازگشت به کلاس‌های من"
+    back_callback = (
+        f"owner:class:{class_id}"
+        if origin == "owner"
+        else (f"ui:classes:{page}" if page else "ui:classes")
+    )
+    back_text = "‹ بازگشت به مشخصات کلاس" if origin == "owner" else "‹ بازگشت به فهرست کلاس‌ها"
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=action_text,
+                callback_data=f"group:select:{class_id}{origin_suffix}",
+                style="success",
+            )
+        ],
+        *status_button,
+        [
+            InlineKeyboardButton(
+                text="📖 راهنمای مدیریت گروه",
+                callback_data=f"group:help:{class_id}{origin_suffix}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=back_text,
+                callback_data=back_callback,
+                style="danger",
+            )
+        ],
+    ]
 
     await callback.answer()
     await callback.message.edit_text(
         body,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
+@router.callback_query(F.data.regexp(r"^group:help:[0-9]+(?::owner|:classes:[0-9]+)?$"))
+async def group_management_help(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("راهنمای گروه فقط در گفت‌وگوی خصوصی در دسترس است.", show_alert=True)
+        return
+    parts = (callback.data or "").split(":")
+    class_id = int(parts[2])
+    _origin, _page, origin_suffix = _group_origin(["group", "manage", *parts[2:]])
+    actor = await get_user(session, callback.from_user, private=True)
+    if not await is_class_manager(session, actor, class_id):
+        await callback.answer("دسترسی مدیریت این کلاس برای شما فعال نیست.", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        "📖 <b>راهنمای مدیریت گروه</b>\n\n"
+        "۱. ربات ClassMate را به گروه موردنظر اضافه کنید تا عضو گروه باشد.\n"
+        "۲. از این صفحه «اتصال گروه» یا «تغییر گروه متصل» را بزنید.\n"
+        "۳. گروه را از انتخاب‌گر تلگرام انتخاب کنید؛ شما باید مدیر گروه باشید.\n"
+        "۴. تلگرام دسترسی‌های درخواستی را اعمال می‌کند و ربات وضعیت مدیر بودن خودش را بررسی می‌کند.\n"
+        "۵. پس از ثبت، پیام تأیید و لینک ورود دانش‌آموزان در گروه ارسال می‌شود.\n\n"
+        "برای جایگزینی گروه، همین فرایند را دوباره انجام دهید. گروه قبلی تا زمان ثبت موفق گروه جدید متصل باقی می‌ماند.",
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=action_text,
-                        callback_data=f"group:select:{class_id}",
+                        text="📂 شروع اتصال گروه",
+                        callback_data=f"group:select:{class_id}{origin_suffix}",
                         style="success",
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        text=back_text,
-                        callback_data=back_callback,
+                        text="‹ بازگشت به مدیریت گروه",
+                        callback_data=f"group:manage:{class_id}{origin_suffix}",
                         style="danger",
                     )
                 ],
             ]
         ),
     )
+    await callback.answer()
 
 @router.callback_query(F.data == "group:link:start")
 async def group_link_start(
@@ -225,7 +319,7 @@ async def link_group_code_input(
     )
 
 
-@router.callback_query(F.data.regexp(r"^group:select:[0-9]+$"))
+@router.callback_query(F.data.regexp(r"^group:select:[0-9]+(?::owner|:classes:[0-9]+)?$"))
 async def select_group_for_class(
     callback: CallbackQuery,
     state: FSMContext,
@@ -234,14 +328,16 @@ async def select_group_for_class(
     if callback.message is None or callback.message.chat.type != "private":
         await callback.answer("انتخاب گروه فقط از پنل خصوصی امکان‌پذیر است.", show_alert=True)
         return
-    class_id = int((callback.data or "").rsplit(":", 1)[-1])
+    parts = (callback.data or "").split(":")
+    class_id = int(parts[2])
+    origin, page, origin_suffix = _group_origin(["group", "manage", *parts[2:]])
     actor = await get_user(session, callback.from_user, private=True)
     if not await is_class_manager(session, actor, class_id):
         await callback.answer("شما مجاز به مدیریت این کلاس نیستید.", show_alert=True)
         return
     await state.clear()
     await state.set_state(GroupLinkForm.selecting)
-    await state.update_data(group_class_id=class_id)
+    await state.update_data(group_class_id=class_id, group_origin=origin, group_page=page)
     picker = ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -278,12 +374,28 @@ async def cancel_group_picker_message(
     state: FSMContext,
     session: AsyncSession,
 ) -> None:
+    data = await state.get_data()
+    class_id = data.get("group_class_id")
+    origin = data.get("group_origin", "classes")
+    page = int(data.get("group_page", 0) or 0)
     await state.clear()
     await message.answer("انتخاب گروه لغو شد.", reply_markup=ReplyKeyboardRemove())
     if message.from_user is not None:
         actor = await get_user(session, message.from_user, private=True)
         await message.answer("\u2063", reply_markup=await menu_for(session, actor))
-
+    if class_id:
+        suffix = ":owner" if origin == "owner" else (f":classes:{page}" if page else "")
+        await message.answer(
+            "برای ادامه، به پنل مدیریت گروه برگردید:",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[
+                    InlineKeyboardButton(
+                        text="🛠 بازگشت به مدیریت گروه",
+                        callback_data=f"group:manage:{int(class_id)}{suffix}",
+                    )
+                ]]
+            ),
+        )
 
 @router.message(GroupLinkForm.selecting, F.chat_shared)
 async def group_chat_selected(
@@ -294,6 +406,9 @@ async def group_chat_selected(
     shared = message.chat_shared
     data = await state.get_data()
     class_id = data.get("group_class_id")
+    origin = data.get("group_origin", "classes")
+    origin_page = int(data.get("group_page", 0) or 0)
+    origin_suffix = ":owner" if origin == "owner" else (f":classes:{origin_page}" if origin_page else "")
 
     async def restore_menu(actor=None, notice: str | None = None) -> None:
         await state.clear()
@@ -442,7 +557,7 @@ async def group_chat_selected(
                 [
                     InlineKeyboardButton(
                         text="🛠 مدیریت گروه",
-                        callback_data=f"group:manage:{int(class_id)}",
+                        callback_data=f"group:manage:{int(class_id)}{origin_suffix}",
                     )
                 ],
             ]

@@ -358,3 +358,99 @@ async def test_group_picker_exposes_cancel_and_requires_admin_membership(world):
     assert request_button.request_chat.user_administrator_rights.can_manage_chat is True
     assert request_button.request_chat.bot_administrator_rights.can_manage_chat is True
     assert request_button.request_chat.bot_administrator_rights.can_send_welcome_messages is False
+
+
+
+def test_main_menu_is_compact_and_secondary_actions_are_in_more_menu():
+    from classmate.bot.keyboards import main_menu, more_menu
+
+    main_labels = [
+        button.text
+        for row in main_menu(is_owner=True).keyboard
+        for button in row
+    ]
+    assert main_labels == [
+        "📊 وضعیت امروز",
+        "📚 بخش آموزشی",
+        "🏫 کلاس‌های من",
+        "🔑 ورود با کد دعوت",
+        "🧰 امکانات بیشتر",
+    ]
+    assert "🔔 تنظیم اعلان‌ها" not in main_labels
+    assert "⚙️ مدیریت" not in main_labels
+    assert "🏫 کلاس‌ها" not in main_labels
+
+    more_buttons = [
+        button
+        for row in more_menu(is_owner=True).inline_keyboard
+        for button in row
+    ]
+    callbacks = {button.callback_data for button in more_buttons}
+    assert {"p1:preferences:more", "more:help", "more:support", "broadcast:start", "owner:classes:0", "ui:home"} <= callbacks
+
+
+@pytest.mark.asyncio
+async def test_my_classes_and_owner_classes_panels_have_back_buttons(world):
+    from classmate.bot.handlers.ui import _render_my_classes, _render_owner_classes
+
+    manager = world["manager"]
+    user_message = SimpleNamespace(answer=AsyncMock())
+    await _render_my_classes(user_message, world["session"], manager, page=0)
+    user_markup = user_message.answer.await_args_list[-1].kwargs["reply_markup"]
+    user_callbacks = {
+        button.callback_data
+        for row in user_markup.inline_keyboard
+        for button in row
+    }
+    assert "ui:home" in user_callbacks
+
+    owner_message = SimpleNamespace(answer=AsyncMock())
+    await _render_owner_classes(owner_message, world["session"], page=0)
+    owner_markup = owner_message.answer.await_args_list[-1].kwargs["reply_markup"]
+    owner_callbacks = {
+        button.callback_data
+        for row in owner_markup.inline_keyboard
+        for button in row
+    }
+    assert "ui:more" in owner_callbacks
+
+
+@pytest.mark.asyncio
+async def test_group_management_panel_shows_live_status_help_and_origin_back(world):
+    from classmate.bot.handlers.groups import group_manage_panel
+
+    manager = world["manager"]
+    class_group = world["class"]
+    class_group.group_chat_id = -1001234567124
+    class_group.group_chat_title = "گروه متصل"
+
+    callback = SimpleNamespace(
+        data=f"group:manage:{class_group.id}:classes:2",
+        from_user=SimpleNamespace(
+            id=manager.telegram_id,
+            username=manager.username,
+            full_name=manager.full_name,
+            first_name=manager.full_name,
+        ),
+        bot=SimpleNamespace(
+            get_me=AsyncMock(return_value=SimpleNamespace(id=90001)),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="administrator")),
+        ),
+        message=SimpleNamespace(
+            chat=SimpleNamespace(type="private"),
+            edit_text=AsyncMock(),
+        ),
+        answer=AsyncMock(),
+    )
+
+    await group_manage_panel(callback, world["session"])
+    body = callback.message.edit_text.await_args.args[0]
+    markup = callback.message.edit_text.await_args.kwargs["reply_markup"]
+    buttons = [button for row in markup.inline_keyboard for button in row]
+    callbacks = {button.callback_data for button in buttons}
+
+    assert "وضعیت اتصال: ✅" in body
+    assert f"group:help:{class_group.id}:classes:2" in callbacks
+    assert f"group:select:{class_group.id}:classes:2" in callbacks
+    assert "ui:classes:2" in callbacks
+    assert any("بررسی مجدد" in button.text for button in buttons)

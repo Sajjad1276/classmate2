@@ -22,6 +22,7 @@ from classmate.bot.keyboards import (
     information_menu,
     education_result_kb,
     main_menu,
+    more_menu,
 )
 from classmate.bot.states import JoinForm
 from classmate.db.models import (
@@ -204,45 +205,80 @@ async def btn_cancel(message: Message, state: FSMContext, session: AsyncSession)
     )
 
 
-async def _render_my_classes(message: Message, session: AsyncSession, user: User) -> None:
+async def _render_my_classes(
+    message: Message,
+    session: AsyncSession,
+    user: User,
+    *,
+    page: int = 0,
+) -> None:
     classes = await classes_for_user(session, user)
+    page_size = 6
+    total = len(classes)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = min(max(page, 0), total_pages - 1)
+
     if not classes:
-        await message.answer("هنوز عضو کلاسی نیستید.")
+        await render_panel(
+            message,
+            "🏫 <b>کلاس‌های من</b>\n\nهنوز عضو کلاسی نیستید. با کد دعوت وارد کلاس شوید.",
+            education_result_kb("ui:home"),
+        )
         return
 
-    class_ids = [class_id for class_id, _, _ in classes]
+    start = page * page_size
+    visible = classes[start : start + page_size]
+    visible_ids = [class_id for class_id, _, _ in visible]
     linked_ids = set(
         await session.scalars(
             select(ClassGroup.id).where(
-                ClassGroup.id.in_(class_ids),
+                ClassGroup.id.in_(visible_ids),
                 ClassGroup.group_chat_id.is_not(None),
             )
         )
     )
-    rows = []
-    for class_id, class_name, _school_name in classes:
+
+    buttons = []
+    lines = [
+        "🏫 <b>کلاس‌های من</b>",
+        f"نمایش {start + 1} تا {start + len(visible)} از {total} کلاس",
+        "",
+    ]
+    for class_id, class_name, school_name in visible:
+        lines.append(f"• <b>{escape(class_name)}</b> — {escape(school_name)}")
         if await is_class_manager(session, user, class_id):
             label = "🛠 مدیریت گروه" if class_id in linked_ids else "🔗 ثبت گروه"
-            rows.append(
+            buttons.append(
                 [
                     InlineKeyboardButton(
-                        text=f"{label} · {class_name[:35]}",
-                        callback_data=f"group:manage:{class_id}",
+                        text=f"{label} · {class_name[:34]}",
+                        callback_data=f"group:manage:{class_id}:classes:{page}",
+                        style="primary",
                     )
                 ]
             )
-    await message.answer(
-        "🏫 <b>کلاس‌های شما</b>\n"
-        + "\n".join(
-            f"• <b>{escape(name)}</b> — {escape(school)}"
-            for _, name, school in classes
+
+    if not buttons:
+        lines.append("\nبرای این کلاس‌ها دسترسی مدیریت گروه ندارید.")
+    nav = []
+    if page > 0:
+        nav.append(
+            InlineKeyboardButton(text="‹ کلاس‌های قبلی", callback_data=f"ui:classes:{page - 1}")
         )
-        + (
-            "\n\nبرای کلاس‌هایی که مدیر آن هستید، ثبت یا مدیریت گروه از دکمه‌های زیر در دسترس است."
-            if rows
-            else ""
-        ),
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows) if rows else None,
+    if page + 1 < total_pages:
+        nav.append(
+            InlineKeyboardButton(text="کلاس‌های بعدی ›", callback_data=f"ui:classes:{page + 1}")
+        )
+    if nav:
+        buttons.append(nav)
+    buttons.append(
+        [InlineKeyboardButton(text="‹ بازگشت به منوی اصلی", callback_data="ui:home", style="danger")]
+    )
+
+    await render_panel(
+        message,
+        "\n".join(lines),
+        InlineKeyboardMarkup(inline_keyboard=buttons),
     )
 
 
@@ -251,18 +287,20 @@ async def btn_classes(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
     user = await get_user(session, message.from_user, private=True)
-    await _render_my_classes(message, session, user)
+    await _render_my_classes(message, session, user, page=0)
 
 
-@router.callback_query(F.data == "ui:classes")
+@router.callback_query(F.data.regexp(r"^ui:classes(?::[0-9]+)?$"))
 async def cb_my_classes(callback: CallbackQuery, session: AsyncSession) -> None:
     if callback.message is None or callback.message.chat.type != "private":
         await callback.answer("این بخش فقط در گفت‌وگوی خصوصی در دسترس است.", show_alert=True)
         return
     user = await get_user(session, callback.from_user, private=True)
+    parts = (callback.data or "").split(":")
+    page = int(parts[2]) if len(parts) > 2 else 0
     await callback.answer()
     await delete_panel(callback.message)
-    await _render_my_classes(callback.message, session, user)
+    await _render_my_classes(callback.message, session, user, page=page)
 
 @router.message(F.text.in_({"🏫 کلاس‌ها", "مدیریت کلاس‌ها"}))
 async def owner_classes_message(message: Message, session: AsyncSession) -> None:
@@ -309,7 +347,7 @@ async def _render_owner_classes(message: Message, session: AsyncSession, *, page
         message,
         f"🏫 <b>کلاس‌ها</b>{LINE_BREAK}{LINE_BREAK}تعداد کلاس‌های فعال: <b>{total}</b>{LINE_BREAK}"
         "برای مشاهده اطلاعات و ثبت گروه، کلاس موردنظر را انتخاب کنید.",
-        InlineKeyboardMarkup(inline_keyboard=buttons),
+        InlineKeyboardMarkup(inline_keyboard=buttons + [[InlineKeyboardButton(text="‹ بازگشت به امکانات بیشتر", callback_data="ui:more", style="danger")]]),
     )
 
 
@@ -438,6 +476,68 @@ async def _open_calendar(
             class_picker(classes, action="calendar", back_callback=back_callback),
         )
 
+
+@router.message(F.text.in_({"📚 بخش آموزشی", "بخش آموزشی"}))
+async def btn_education_menu(message: Message) -> None:
+    if message.chat.type != "private":
+        return
+    await render_panel(
+        message,
+        "📚 <b>بخش آموزشی</b>\n\nیکی از بخش‌های آموزشی کلاس را انتخاب کنید:",
+        information_menu(),
+    )
+
+
+@router.message(F.text.in_({"🧰 امکانات بیشتر", "امکانات بیشتر"}))
+async def btn_more_menu(message: Message, session: AsyncSession) -> None:
+    if message.chat.type != "private":
+        return
+    user = await get_user(session, message.from_user, private=True)
+    await render_panel(
+        message,
+        "🧰 <b>امکانات بیشتر</b>\n\nابزارهای تکمیلی و تنظیمات حساب:",
+        more_menu(is_owner=bool(user.is_platform_admin)),
+    )
+
+
+@router.callback_query(F.data == "ui:more")
+async def cb_more_menu(callback: CallbackQuery, session: AsyncSession) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("این بخش فقط در گفت‌وگوی خصوصی در دسترس است.", show_alert=True)
+        return
+    user = await get_user(session, callback.from_user, private=True)
+    await callback.answer()
+    await delete_panel(callback.message)
+    await render_panel(
+        callback.message,
+        "🧰 <b>امکانات بیشتر</b>\n\nابزارهای تکمیلی و تنظیمات حساب:",
+        more_menu(is_owner=bool(user.is_platform_admin)),
+    )
+
+
+@router.callback_query(F.data.in_({"more:help", "more:support"}))
+async def cb_more_information(callback: CallbackQuery) -> None:
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("این بخش فقط در گفت‌وگوی خصوصی در دسترس است.", show_alert=True)
+        return
+    if callback.data == "more:help":
+        text = (
+            "❓ <b>راهنمای ClassMate 2</b>\n\n"
+            "از «📊 وضعیت امروز» برای خلاصه وضعیت کلاس، از «📚 بخش آموزشی» برای مشاهده تکالیف، "
+            "امتحانات، تقویم و اطلاعیه‌ها و از «🏫 کلاس‌های من» برای مشاهده کلاس‌های عضو‌شده استفاده کنید.\n\n"
+            "برای پیوستن به کلاس جدید، کد دعوت را از مدیر کلاس دریافت کنید."
+        )
+    else:
+        text = (
+            "🆘 <b>پشتیبانی ClassMate</b>\n\n"
+            "برای گزارش خطا، پیشنهاد قابلیت یا دریافت راهنمایی با پشتیبانی در ارتباط باشید:\n"
+            "🗣️ @Mizanup"
+        )
+    await callback.message.edit_text(
+        text,
+        reply_markup=education_result_kb("ui:more"),
+    )
+    await callback.answer()
 
 @router.message(F.text.in_({"🔑 ورود با کد دعوت", "عضویت با کد"}))
 async def btn_join(message: Message, state: FSMContext) -> None:
@@ -589,6 +689,7 @@ async def cb_pick(callback: CallbackQuery, session: AsyncSession) -> None:
         "info_menu": "info:menu",
         "p1_dashboard": "p1:dashboard",
         "main_menu": "ui:home",
+        "more_menu": "ui:more",
     }.get(back_parts[0] if back_parts else None)
     user = await get_user(session, callback.from_user, private=True)
     await delete_panel(callback.message)

@@ -9,40 +9,45 @@ from aiogram.types import (
 
 
 def main_menu(*, is_owner: bool = False) -> ReplyKeyboardMarkup:
-    """Persistent student information menu.
-
-    The reply keyboard is the only general route back to the product's main
-    areas. No inline "main menu" button is intentionally exposed.
-    """
+    """Keep only the four primary entry points on the persistent keyboard."""
     keyboard = [
         [
             KeyboardButton(text="📊 وضعیت امروز", style="primary"),
-            KeyboardButton(text="📅 تقویم کلاس", style="primary"),
-        ],
-        [
-            KeyboardButton(text="📝 امتحانات", style="primary"),
-            KeyboardButton(text="📚 تکالیف", style="primary"),
-        ],
-        [
-            KeyboardButton(text="📋 گزارش‌های کلاسی"),
-            KeyboardButton(text="📣 اطلاعیه‌ها"),
+            KeyboardButton(text="📚 بخش آموزشی", style="primary"),
         ],
         [
             KeyboardButton(text="🏫 کلاس‌های من"),
-            KeyboardButton(text="🔔 اعلان‌ها"),
+            KeyboardButton(text="🔑 ورود با کد دعوت", style="success"),
         ],
-        [KeyboardButton(text="🔑 ورود با کد دعوت", style="success")],
-        [KeyboardButton(text="❓ راهنما"), KeyboardButton(text="🆘 پشتیبانی")],
+        [KeyboardButton(text="🧰 امکانات بیشتر")],
     ]
-    if is_owner:
-        keyboard[3].append(KeyboardButton(text="⚙️ مدیریت", style="danger"))
-        keyboard.append([KeyboardButton(text="🏫 کلاس‌ها", style="primary")])
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
         resize_keyboard=True,
         is_persistent=True,
     )
 
+
+def more_menu(*, is_owner: bool = False) -> InlineKeyboardMarkup:
+    """Secondary learner tools and owner-only operations."""
+    rows = [
+        [InlineKeyboardButton(text="🔔 تنظیم اعلان‌ها", callback_data="p1:preferences:more")],
+        [
+            InlineKeyboardButton(text="❓ راهنما", callback_data="more:help"),
+            InlineKeyboardButton(text="🆘 پشتیبانی", callback_data="more:support"),
+        ],
+    ]
+    if is_owner:
+        rows.append(
+            [
+                InlineKeyboardButton(text="📢 پیام همگانی", callback_data="broadcast:start", style="primary"),
+                InlineKeyboardButton(text="🏫 مدیریت کلاس‌ها", callback_data="owner:classes:0", style="primary"),
+            ]
+        )
+    rows.append(
+        [InlineKeyboardButton(text="‹ بازگشت به منوی اصلی", callback_data="ui:home", style="danger")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def cancel_kb(*, selective: bool = False) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
@@ -95,6 +100,7 @@ def class_picker(
         "info:menu": "info_menu",
         "p1:dashboard": "p1_dashboard",
         "ui:home": "main_menu",
+        "ui:more": "more_menu",
     }.get(back_callback)
     start = page * page_size
     rows = [

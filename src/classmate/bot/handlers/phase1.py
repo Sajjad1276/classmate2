@@ -247,7 +247,7 @@ async def dashboard_join(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data == "p1:preferences")
+@router.callback_query(F.data.regexp(r"^p1:preferences(?::more)?$"))
 async def preferences_entry(callback: CallbackQuery, session: AsyncSession) -> None:
     if not await _require_private_callback(callback):
         return
@@ -257,20 +257,24 @@ async def preferences_entry(callback: CallbackQuery, session: AsyncSession) -> N
         private=bool(callback.message and callback.message.chat.type == "private"),
     )
     classes = await classes_for_user(session, user)
+    back_callback = "ui:more" if callback.data.endswith(":more") else "p1:dashboard"
     await delete_panel(callback.message)
     if not classes:
         await render_panel(
             callback.message,
             "برای تنظیم اعلان‌ها ابتدا عضو یک کلاس شوید.",
-            dashboard_empty_kb(),
+            education_result_kb(back_callback),
         )
     elif len(classes) == 1:
-        await _render_preferences(callback.message, session, user, classes[0][0], classes[0][1], back_callback="p1:dashboard")
+        await _render_preferences(
+            callback.message, session, user, classes[0][0], classes[0][1],
+            back_callback=back_callback,
+        )
     else:
         await render_panel(
             callback.message,
             "🏫 کلاس موردنظر برای تنظیم اعلان‌ها را انتخاب کنید:",
-            class_picker(classes, action="prefs", back_callback="p1:dashboard"),
+            class_picker(classes, action="prefs", back_callback=back_callback),
         )
     await callback.answer()
 
@@ -389,7 +393,7 @@ async def _render_preferences(
     back_callback: str = "ui:home",
 ) -> None:
     pref = await get_preferences(session, user.id, class_id)
-    back_token = {"ui:home": "main_menu", "p1:dashboard": "dashboard"}.get(back_callback, "main_menu")
+    back_token = {"ui:home": "main_menu", "p1:dashboard": "dashboard", "ui:more": "more_menu"}.get(back_callback, "main_menu")
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -420,7 +424,7 @@ async def toggle_preference(callback: CallbackQuery, session: AsyncSession) -> N
         return
     _, _, kind, class_id_s, *back_parts = callback.data.split(":")
     back_token = back_parts[0] if back_parts else "dashboard"
-    back_callback = {"main_menu": "ui:home", "dashboard": "p1:dashboard"}.get(back_token, "p1:dashboard")
+    back_callback = {"main_menu": "ui:home", "dashboard": "p1:dashboard", "more_menu": "ui:more"}.get(back_token, "p1:dashboard")
     user = await get_user(
         session,
         callback.from_user,
