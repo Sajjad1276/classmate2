@@ -235,10 +235,7 @@ async def test_group_selection_registers_automatically_and_notifies_both_chats(w
         ),
         get_me=AsyncMock(return_value=bot_user),
         get_chat_member=AsyncMock(
-            side_effect=[
-                SimpleNamespace(status="administrator"),
-                SimpleNamespace(status="administrator"),
-            ]
+            return_value=SimpleNamespace(status="administrator")
         ),
         send_message=AsyncMock(),
     )
@@ -461,3 +458,79 @@ async def test_group_management_panel_shows_live_status_help_and_origin_back(wor
     assert f"group:select:{class_group.id}:classes:2" in callbacks
     assert "ui:classes:2" in callbacks
     assert any("بررسی مجدد" in button.text for button in buttons)
+
+
+
+@pytest.mark.asyncio
+async def test_group_picker_closes_inline_panel_before_showing_reply_keyboard(world):
+    from aiogram.types import ReplyKeyboardMarkup
+    from classmate.bot.handlers.groups import select_group_for_class
+
+    manager = world["manager"]
+    message = SimpleNamespace(
+        chat=SimpleNamespace(type="private"),
+        edit_text=AsyncMock(),
+        answer=AsyncMock(),
+    )
+    callback = SimpleNamespace(
+        data=f"group:select:{world['class'].id}:classes:0",
+        from_user=SimpleNamespace(
+            id=manager.telegram_id,
+            username=manager.username,
+            full_name=manager.full_name,
+            first_name=manager.full_name,
+        ),
+        message=message,
+        answer=AsyncMock(),
+    )
+    state = AsyncMock()
+
+    await select_group_for_class(callback, state, world["session"])
+
+    message.edit_text.assert_awaited_once()
+    assert message.edit_text.await_args.kwargs["reply_markup"] is None
+    picker_markup = message.answer.await_args.kwargs["reply_markup"]
+    assert isinstance(picker_markup, ReplyKeyboardMarkup)
+    state.set_state.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cancel_group_picker_restores_only_previous_inline_panel(world):
+    from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardRemove
+    from classmate.bot.handlers.groups import cancel_group_picker_message
+
+    manager = world["manager"]
+    state = AsyncMock()
+    state.get_data.return_value = {
+        "group_class_id": world["class"].id,
+        "group_origin": "classes",
+        "group_page": 0,
+    }
+    message = SimpleNamespace(
+        chat=SimpleNamespace(type="private"),
+        from_user=SimpleNamespace(
+            id=manager.telegram_id,
+            username=manager.username,
+            full_name=manager.full_name,
+            first_name=manager.full_name,
+        ),
+        bot=SimpleNamespace(),
+        answer=AsyncMock(),
+    )
+
+    await cancel_group_picker_message(message, state, world["session"])
+
+    state.clear.assert_awaited_once()
+    assert message.answer.await_count == 2
+    assert isinstance(
+        message.answer.await_args_list[0].kwargs["reply_markup"],
+        ReplyKeyboardRemove,
+    )
+    restored_markup = message.answer.await_args_list[1].kwargs["reply_markup"]
+    assert isinstance(restored_markup, InlineKeyboardMarkup)
+    buttons = [button for row in restored_markup.inline_keyboard for button in row]
+    assert any(button.callback_data == "ui:classes" for button in buttons)
+    assert all(
+        not isinstance(call.kwargs.get("reply_markup"), ReplyKeyboardMarkup)
+        for call in message.answer.await_args_list
+    )
