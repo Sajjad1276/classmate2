@@ -18,7 +18,7 @@ from classmate.bot.handlers.ui import (
     menu_for,
     render_panel,
 )
-from classmate.bot.keyboards import cancel_kb, class_picker
+from classmate.bot.keyboards import cancel_kb, class_picker, education_result_kb
 from classmate.bot.states import JoinForm, SearchForm
 from classmate.domain.dates import jalali_date, jalali_datetime, persian_weekday
 from classmate.core.enums import RecordStatus
