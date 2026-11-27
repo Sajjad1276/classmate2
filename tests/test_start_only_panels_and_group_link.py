@@ -496,7 +496,7 @@ async def test_group_picker_closes_inline_panel_before_showing_reply_keyboard(wo
 
 @pytest.mark.asyncio
 async def test_cancel_group_picker_restores_only_previous_inline_panel(world):
-    from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardRemove
+    from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
     from classmate.bot.handlers.groups import cancel_group_picker_message
 
     manager = world["manager"]
