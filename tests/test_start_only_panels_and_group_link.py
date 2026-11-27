@@ -138,7 +138,10 @@ async def test_my_classes_panel_shows_group_link_controls_only_to_managers(world
         answer=AsyncMock(),
     )
     await btn_classes(student_message, session=world["session"])
-    assert student_message.answer.await_args.kwargs.get("reply_markup") is None
+    student_markup = student_message.answer.await_args.kwargs["reply_markup"]
+    student_buttons = [button for row in student_markup.inline_keyboard for button in row]
+    assert any(button.callback_data == "ui:home" for button in student_buttons)
+    assert not any((button.callback_data or "").startswith("group:manage:") for button in student_buttons)
 
 
 def test_only_start_is_registered_and_no_legacy_command_filters_remain():
@@ -290,7 +293,7 @@ async def test_group_management_panel_reflects_registration_state(world):
     await group_manage_panel(callback, world["session"])
     first_markup = callback.message.edit_text.await_args.kwargs["reply_markup"]
     first_labels = [button.text for row in first_markup.inline_keyboard for button in row]
-    assert "📂 انتخاب گروه برای ثبت" in first_labels
+    assert "➕ اتصال گروه" in first_labels
 
     class_group.group_chat_id = -1001234567124
     class_group.group_chat_title = "گروه متصل"
