@@ -242,18 +242,21 @@ async def select_group_for_class(
     await state.set_state(GroupLinkForm.selecting)
     await state.update_data(group_class_id=class_id)
     picker = ReplyKeyboardMarkup(
-        keyboard=[[
-            KeyboardButton(
-                text="📂 انتخاب گروه تلگرام",
-                request_chat=KeyboardButtonRequestChat(
-                    request_id=class_id,
-                    chat_is_channel=False,
-                    user_administrator_rights=_requested_group_admin_rights(),
-                    bot_administrator_rights=_requested_group_admin_rights(),
-                    bot_is_member=True,
-                ),
-            )
-        ]],
+        keyboard=[
+            [
+                KeyboardButton(
+                    text="📂 انتخاب گروه تلگرام",
+                    request_chat=KeyboardButtonRequestChat(
+                        request_id=class_id,
+                        chat_is_channel=False,
+                        user_administrator_rights=_requested_group_admin_rights(),
+                        bot_administrator_rights=_requested_group_admin_rights(),
+                        bot_is_member=True,
+                    ),
+                )
+            ],
+            [KeyboardButton(text="❌ لغو انتخاب", style="danger")],
+        ],
         resize_keyboard=True,
         one_time_keyboard=True,
     )

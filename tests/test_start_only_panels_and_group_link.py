@@ -319,3 +319,41 @@ async def test_notification_settings_from_main_menu_returns_to_main_menu(world):
     markup = message.answer.await_args.kwargs["reply_markup"]
     buttons = [button for row in markup.inline_keyboard for button in row]
     assert any(button.text == "‹ بازگشت" and button.callback_data == "ui:home" for button in buttons)
+
+
+
+@pytest.mark.asyncio
+async def test_group_picker_exposes_cancel_and_requires_admin_membership(world):
+    from classmate.bot.handlers.groups import select_group_for_class
+
+    manager = world["manager"]
+    callback = SimpleNamespace(
+        data=f"group:select:{world['class'].id}",
+        from_user=SimpleNamespace(
+            id=manager.telegram_id,
+            username=manager.username,
+            full_name=manager.full_name,
+            first_name=manager.full_name,
+        ),
+        message=SimpleNamespace(
+            chat=SimpleNamespace(type="private"),
+            answer=AsyncMock(),
+        ),
+        answer=AsyncMock(),
+    )
+    state = AsyncMock()
+
+    await select_group_for_class(callback, state, world["session"])
+
+    picker = callback.message.answer.await_args.kwargs["reply_markup"]
+    button_rows = [[button.text for button in row] for row in picker.keyboard]
+    assert ["❌ لغو انتخاب"] in button_rows
+    request_button = next(
+        button
+        for row in picker.keyboard
+        for button in row
+        if button.request_chat is not None
+    )
+    assert request_button.request_chat.bot_is_member is True
+    assert request_button.request_chat.user_administrator_rights.can_manage_chat is True
+    assert request_button.request_chat.bot_administrator_rights.can_manage_chat is True
