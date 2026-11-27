@@ -533,6 +533,8 @@ async def cb_information(callback: CallbackQuery, session: AsyncSession) -> None
             back_callback=back_callback,
         )
     elif action == "announcements":
+        from classmate.bot.handlers.phase1 import announcements
+
         await delete_panel(callback.message)
         await announcements(callback.message, session, back_callback=back_callback)
     await callback.answer()
