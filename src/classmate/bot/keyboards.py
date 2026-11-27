@@ -9,20 +9,32 @@ from aiogram.types import (
 
 
 def main_menu(*, is_owner: bool = False) -> ReplyKeyboardMarkup:
+    """Persistent student information menu.
+
+    The reply keyboard is the only general route back to the product's main
+    areas. No inline "main menu" button is intentionally exposed.
+    """
     keyboard = [
-            [
-                KeyboardButton(text="🏠 داشبورد من", style="primary"),
-                KeyboardButton(text="🏫 کلاس‌های من"),
-            ],
-            [
-                KeyboardButton(text="🎓 بخش آموزشی", style="primary"),
-                KeyboardButton(text="🔎 جست‌وجو"),
-            ],
-            [KeyboardButton(text="🔑 ورود با کد دعوت", style="success")],
-            [KeyboardButton(text="❓ راهنما"), KeyboardButton(text="🆘 پشتیبانی")],
-        ]
+        [
+            KeyboardButton(text="📊 وضعیت امروز", style="primary"),
+            KeyboardButton(text="📅 تقویم کلاس", style="primary"),
+        ],
+        [
+            KeyboardButton(text="📝 امتحانات", style="primary"),
+            KeyboardButton(text="📚 تکالیف", style="primary"),
+        ],
+        [
+            KeyboardButton(text="📋 گزارش‌های کلاسی"),
+            KeyboardButton(text="📣 اطلاعیه‌ها"),
+        ],
+        [
+            KeyboardButton(text="🏫 کلاس‌های من"),
+            KeyboardButton(text="🔔 اعلان‌ها"),
+        ],
+        [KeyboardButton(text="❓ راهنما"), KeyboardButton(text="🆘 پشتیبانی")],
+    ]
     if is_owner:
-        keyboard[2].append(KeyboardButton(text="🔴 مدیریت", style="danger"))
+        keyboard[3].append(KeyboardButton(text="🔴 مدیریت", style="danger"))
         keyboard.append([KeyboardButton(text="🏫 کلاس‌ها", style="primary")])
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
@@ -39,39 +51,34 @@ def cancel_kb(*, selective: bool = False) -> ReplyKeyboardMarkup:
     )
 
 
-def education_menu() -> InlineKeyboardMarkup:
+def information_menu() -> InlineKeyboardMarkup:
+    """Inline entry points for the read-only class information areas."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="📚 تکالیف", callback_data="edu:notice:homework"),
-                InlineKeyboardButton(text="📝 امتحانات", callback_data="edu:notice:exams"),
+                InlineKeyboardButton(text="📅 تقویم کلاس", callback_data="info:calendar", style="primary"),
+                InlineKeyboardButton(text="📝 امتحانات", callback_data="info:exams", style="primary"),
             ],
             [
-                InlineKeyboardButton(text="📅 برنامه", callback_data="edu:notice:week"),
-                InlineKeyboardButton(text="📋 گزارش امروز", callback_data="edu:notice:today"),
+                InlineKeyboardButton(text="📚 تکالیف", callback_data="info:homework", style="primary"),
+                InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports"),
             ],
-            [
-                InlineKeyboardButton(text="📤 ارسال تکلیف", callback_data="edu:notice:submit"),
-                InlineKeyboardButton(text="📊 نمرات", callback_data="edu:notice:grades"),
-            ],
-            [
-                InlineKeyboardButton(text="🟢 حضور", callback_data="edu:notice:attendance"),
-                InlineKeyboardButton(text="🗳 نظرسنجی", callback_data="edu:notice:polls"),
-            ],
-            [InlineKeyboardButton(text="« بازگشت", callback_data="ui:home", style="danger")],
+            [InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements")],
+            [InlineKeyboardButton(text="🔄 به‌روزرسانی", callback_data="dashboard:today")],
         ]
     )
+
+
+# Compatibility name for code that still imports the old helper. Its contents
+# are now strictly information-oriented and contain no learning-management UI.
+def education_menu() -> InlineKeyboardMarkup:
+    return information_menu()
 
 
 def education_result_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🎓 بازگشت به بخش آموزشی", callback_data="menu:education", style="primary"
-                )
-            ],
-            [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="ui:home", style="danger")],
+            [InlineKeyboardButton(text="‹ بازگشت", callback_data="ui:back")],
         ]
     )
 
@@ -85,6 +92,7 @@ def class_picker(
             InlineKeyboardButton(
                 text=(f"{name} · {school}" if school else name)[:60],
                 callback_data=f"pick:{action}:{cid}",
+                style="primary",
             )
         ]
         for cid, name, school in classes[start : start + page_size]
@@ -100,5 +108,5 @@ def class_picker(
         )
     if nav:
         rows.append(nav)
-    rows.append([InlineKeyboardButton(text="« لغو عملیات", callback_data="ui:home")])
+    rows.append([InlineKeyboardButton(text="‹ بازگشت", callback_data="ui:back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

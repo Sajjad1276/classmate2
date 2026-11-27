@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from classmate.bot.keyboards import (
     cancel_kb,
     class_picker,
-    education_menu,
+    information_menu,
     education_result_kb,
     main_menu,
 )
@@ -266,7 +266,6 @@ async def _render_owner_classes(message: Message, session: AsyncSession, *, page
         nav.append(InlineKeyboardButton(text="بعدی ›", callback_data=f"owner:classes:{page+1}"))
     if nav:
         buttons.append(nav)
-    buttons.append([InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="ui:home")])
     await render_panel(
         message,
         f"🏫 <b>کلاس‌ها</b>{LINE_BREAK}{LINE_BREAK}تعداد کلاس‌های فعال: <b>{total}</b>{LINE_BREAK}"
@@ -329,12 +328,42 @@ async def owner_class_detail(callback: CallbackQuery, session: AsyncSession) -> 
     )
 
 
-@router.message(F.text.in_({"🎓 بخش آموزشی", "بخش آموزشی"}))
-async def btn_education(message: Message) -> None:
+@router.message(F.text.in_({"📅 تقویم کلاس", "تقویم کلاس"}))
+async def btn_calendar(message: Message, session: AsyncSession) -> None:
+    if message.chat.type != "private":
+        return
+    user = await get_user(session, message.from_user, private=True)
+    await _open_calendar(message, session, user)
+
+
+@router.message(F.text.in_({"📝 امتحانات", "امتحانات"}))
+async def btn_exams(message: Message, session: AsyncSession) -> None:
     if message.chat.type == "private":
-        await render_panel(
-            message, "🎓 <b>بخش آموزشی</b>\nگزینه موردنظر را انتخاب کنید:", education_menu()
-        )
+        await ask_class(message, session, "exams", await get_user(session, message.from_user, private=True))
+
+
+@router.message(F.text.in_({"📚 تکالیف", "تکالیف"}))
+async def btn_homework(message: Message, session: AsyncSession) -> None:
+    if message.chat.type == "private":
+        await ask_class(message, session, "homework", await get_user(session, message.from_user, private=True))
+
+
+@router.message(F.text.in_({"📋 گزارش‌های کلاسی", "گزارش‌های کلاسی"}))
+async def btn_reports(message: Message, session: AsyncSession) -> None:
+    if message.chat.type == "private":
+        await ask_class(message, session, "today", await get_user(session, message.from_user, private=True))
+
+
+async def _open_calendar(message: Message, session: AsyncSession, user: User) -> None:
+    classes = await classes_for_user(session, user)
+    if not classes:
+        await message.answer("هنوز عضو کلاسی نیستید. برای مشاهده تقویم، ابتدا با کد دعوت وارد یک کلاس شوید.")
+    elif len(classes) == 1:
+        from classmate.bot.handlers.phase1 import _render_calendar
+
+        await _render_calendar(message, session, classes[0][0], classes[0][1])
+    else:
+        await render_panel(message, "🏫 کلاس موردنظر برای مشاهده تقویم را انتخاب کنید:", class_picker(classes, action="calendar"))
 
 
 @router.message(F.text.in_({"🔑 ورود با کد دعوت", "عضویت با کد"}))
@@ -349,13 +378,23 @@ async def btn_help(message: Message, session: AsyncSession) -> None:
     await message.answer(
         "<b>راهنمای ClassMate 2</b>\n\n"
         "از «🔑 ورود با کد دعوت» عضو کلاس شوید.\n"
-        "گزینه‌های «🎓 بخش آموزشی» فعلاً فقط جهت نمایش هستند و فعال نشده‌اند.\n\n"
+        "از گزینه‌های «📊 وضعیت امروز»، «📅 تقویم کلاس» و «📣 اطلاعیه‌ها» برای پیگیری اخبار کلاس استفاده کنید.\n\n"
         "🚧 ⌯ اگه کارت به مشکل خورده یا پیشنهادی برای ارتقا ربات داری میتونی از طریق آیدی زیر با ما در ارتباط باشی🤝🏻\n"
         "🗣️ @Mizanup",
         reply_markup=await menu_for(
             session,
             await get_user(session, message.from_user, private=message.chat.type == "private"),
         ),
+    )
+
+
+@router.message(F.text.in_({"🆘 پشتیبانی", "پشتیبانی"}))
+async def btn_support(message: Message, session: AsyncSession) -> None:
+    user = await get_user(session, message.from_user, private=message.chat.type == "private")
+    await message.answer(
+        "اگر مشکلی در دریافت برنامه، امتحان، گزارش یا اطلاعیه داری، با پشتیبانی در ارتباط باش:\n"
+        "🗣️ @Mizanup",
+        reply_markup=await menu_for(session, user),
     )
 
 
@@ -374,6 +413,16 @@ async def cb_home(callback: CallbackQuery, state: FSMContext, session: AsyncSess
     await callback.answer()
 
 
+@router.callback_query(F.data == "ui:back")
+async def cb_back(callback: CallbackQuery, session: AsyncSession) -> None:
+    """Return to the information panel without exposing a main-menu button."""
+    if callback.message is None:
+        return
+    await delete_panel(callback.message)
+    await callback.message.answer("📋 <b>اطلاعات کلاس</b>", reply_markup=information_menu())
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("edu:notice:"))
 async def cb_education_notice(callback: CallbackQuery) -> None:
     await callback.answer(
@@ -382,13 +431,33 @@ async def cb_education_notice(callback: CallbackQuery) -> None:
     )
 
 
+@router.callback_query(F.data.startswith("info:"))
+async def cb_information(callback: CallbackQuery, session: AsyncSession) -> None:
+    """Open read-only class information panels from inline buttons."""
+    if callback.message is None or callback.message.chat.type != "private":
+        await callback.answer("این بخش فقط در گفت‌وگوی خصوصی در دسترس است.", show_alert=True)
+        return
+    action = callback.data.split(":", 1)[1]
+    user = await get_user(session, callback.from_user, private=True)
+    if action == "calendar":
+        await delete_panel(callback.message)
+        await _open_calendar(callback.message, session, user)
+    elif action in {"exams", "homework", "reports"}:
+        await delete_panel(callback.message)
+        await ask_class(callback.message, session, "today" if action == "reports" else action, user)
+    elif action == "announcements":
+        await delete_panel(callback.message)
+        await announcements(callback.message, session)
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("menu:"))
 async def cb_menu(callback: CallbackQuery, session: AsyncSession) -> None:
     if callback.message is None:
         return
     action = callback.data.split(":", 1)[1]
     if action == "education":
-        await render_panel(callback.message, "🎓 <b>بخش آموزشی</b>", education_menu())
+        await render_panel(callback.message, "📋 <b>اطلاعات کلاس</b>", information_menu())
     elif action in {"homework", "exams", "week", "today"}:
         await ask_class(
             callback.message,

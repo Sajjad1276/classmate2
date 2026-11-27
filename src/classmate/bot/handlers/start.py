@@ -56,5 +56,21 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession) 
         f"📇 - در اینجا میتونید امور مدرسه رو به صورت حرفهای و پیشرفته مدیریت کنید.\n\n"
         f"• آیدی شما : {username}\n\n"
         "🪎 برای ادامه، گزینهٔ موردنظر را از پنل زیر انتخاب کنید:",
-        reply_markup=await menu_for(session, user),
+        # Keep the existing /start copy unchanged; this is the only new
+        # affordance attached to it.
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="📊 مشاهده وضعیت امروز",
+                        callback_data="dashboard:today",
+                        style="success",
+                    )
+                ]
+            ]
+        ),
     )
+    # Telegram cannot attach reply and inline keyboards to the same message.
+    # Install the persistent reply keyboard in a separate, visually empty
+    # message while keeping the existing /start copy and its inline button.
+    await message.answer("\u2063", reply_markup=await menu_for(session, user))

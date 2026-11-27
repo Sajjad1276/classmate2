@@ -9,6 +9,8 @@ def setup_routers() -> Router:
         groups.router,
         onboarding.router,
         phase1.router,
+        # Kept registered for backward-compatible callback/data handling; no
+        # phase-two controls are exposed by the new student menu.
         phase2.router,
         ui.router,
         start.router,

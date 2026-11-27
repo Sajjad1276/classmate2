@@ -60,14 +60,19 @@ def dashboard_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🎓 بخش آموزشی", callback_data="menu:education", style="primary"
+                    text="📅 تقویم کلاس", callback_data="info:calendar", style="primary"
                 )
             ],
-            [InlineKeyboardButton(text="📅 تقویم ۷ روز آینده", callback_data="p1:calendar")],
-            [InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="p1:announcements")],
+            [
+                InlineKeyboardButton(text="📝 امتحانات", callback_data="info:exams", style="primary"),
+                InlineKeyboardButton(text="📚 تکالیف", callback_data="info:homework", style="primary"),
+            ],
+            [
+                InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports"),
+                InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements"),
+            ],
             [InlineKeyboardButton(text="🔔 تنظیم اعلان‌ها", callback_data="p1:preferences")],
-            [InlineKeyboardButton(text="🔄 به‌روزرسانی داشبورد", callback_data="p1:dashboard")],
-            [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="ui:home", style="danger")],
+            [InlineKeyboardButton(text="🔄 به‌روزرسانی", callback_data="dashboard:today")],
         ]
     )
 
@@ -80,7 +85,6 @@ def dashboard_empty_kb() -> InlineKeyboardMarkup:
                     text="🔑 ورود با کد دعوت", callback_data="p1:join", style="success"
                 )
             ],
-            [InlineKeyboardButton(text="🏠 منوی اصلی", callback_data="ui:home", style="danger")],
         ]
     )
 
@@ -160,7 +164,7 @@ async def _render_dashboard(message: Message, session: AsyncSession, user) -> No
     await render_panel(message, "\n".join(lines), dashboard_kb())
 
 
-@router.message(F.text.in_({"🏠 داشبورد من", "داشبورد من"}))
+@router.message(F.text.in_({"📊 وضعیت امروز", "🏠 داشبورد من", "داشبورد من"}))
 async def dashboard(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -180,6 +184,20 @@ async def dashboard_callback(callback: CallbackQuery, session: AsyncSession) -> 
     await delete_panel(callback.message)
     await _render_dashboard(callback.message, session, user)
     await callback.answer("داشبورد به‌روزرسانی شد.")
+
+
+@router.callback_query(F.data == "dashboard:today")
+async def today_dashboard_callback(callback: CallbackQuery, session: AsyncSession) -> None:
+    if not await _require_private_callback(callback):
+        return
+    user = await get_user(
+        session,
+        callback.from_user,
+        private=True,
+    )
+    await delete_panel(callback.message)
+    await _render_dashboard(callback.message, session, user)
+    await callback.answer()
 
 
 @router.callback_query(F.data == "p1:calendar")
