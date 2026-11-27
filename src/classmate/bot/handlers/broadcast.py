@@ -82,7 +82,7 @@ async def _owner_user(session: AsyncSession, telegram_user) -> User | None:
     return user if user.is_active and user.is_platform_admin else None
 
 
-@router.message(F.text.in_({"🔴 مدیریت", "مدیریت"}))
+@router.message(F.text.in_({"⚙️ مدیریت", "🔴 مدیریت", "مدیریت"}))
 async def open_management_panel(
     message: Message, state: FSMContext, session: AsyncSession
 ) -> None:
@@ -94,7 +94,7 @@ async def open_management_panel(
         return
     await state.clear()
     await message.answer(
-        "🔴 <b>مدیریت سامانه</b>\n\n"
+        "⚙️ <b>مدیریت سامانه</b>\n\n"
         "برای ارسال پیام به اعضای واجد شرایط ربات، گزینه زیر را انتخاب کنید.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(

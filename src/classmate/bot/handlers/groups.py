@@ -55,6 +55,7 @@ def _cancel_group_link_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="❌ لغو اتصال",
                     callback_data="group:link:cancel",
+                    style="danger",
                 )
             ]
         ]
@@ -110,6 +111,7 @@ async def group_manage_panel(
                     InlineKeyboardButton(
                         text="⬅️ بازگشت به کلاس‌های من",
                         callback_data="ui:home",
+                        style="danger",
                     )
                 ],
             ]
@@ -154,6 +156,7 @@ async def group_issue_code(
                     InlineKeyboardButton(
                         text="⬅️ بازگشت به مدیریت گروه",
                         callback_data=f"group:manage:{class_id}",
+                        style="danger",
                     )
                 ]
             ]

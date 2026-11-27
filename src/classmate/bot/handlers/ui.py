@@ -338,7 +338,7 @@ async def owner_class_detail(callback: CallbackQuery, session: AsyncSession) -> 
         text,
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔗 ثبت / تغییر گروه", callback_data=f"group:select:{class_id}", style="success")],
-            [InlineKeyboardButton(text="‹ بازگشت به کلاس‌ها", callback_data="owner:classes:0")],
+            [InlineKeyboardButton(text="‹ بازگشت به کلاس‌ها", callback_data="owner:classes:0", style="danger")],
         ]),
     )
 
@@ -348,25 +348,43 @@ async def btn_calendar(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
     user = await get_user(session, message.from_user, private=True)
-    await _open_calendar(message, session, user)
+    await _open_calendar(message, session, user, back_callback="dashboard:today")
 
 
 @router.message(F.text.in_({"📝 امتحانات", "امتحانات"}))
 async def btn_exams(message: Message, session: AsyncSession) -> None:
     if message.chat.type == "private":
-        await ask_class(message, session, "exams", await get_user(session, message.from_user, private=True))
+        await ask_class(
+            message,
+            session,
+            "exams",
+            await get_user(session, message.from_user, private=True),
+            back_callback="dashboard:today",
+        )
 
 
 @router.message(F.text.in_({"📚 تکالیف", "تکالیف"}))
 async def btn_homework(message: Message, session: AsyncSession) -> None:
     if message.chat.type == "private":
-        await ask_class(message, session, "homework", await get_user(session, message.from_user, private=True))
+        await ask_class(
+            message,
+            session,
+            "homework",
+            await get_user(session, message.from_user, private=True),
+            back_callback="dashboard:today",
+        )
 
 
 @router.message(F.text.in_({"📋 گزارش‌های کلاسی", "گزارش‌های کلاسی"}))
 async def btn_reports(message: Message, session: AsyncSession) -> None:
     if message.chat.type == "private":
-        await ask_class(message, session, "today", await get_user(session, message.from_user, private=True))
+        await ask_class(
+            message,
+            session,
+            "today",
+            await get_user(session, message.from_user, private=True),
+            back_callback="dashboard:today",
+        )
 
 
 async def _open_calendar(
@@ -382,7 +400,13 @@ async def _open_calendar(
     elif len(classes) == 1:
         from classmate.bot.handlers.phase1 import _render_calendar
 
-        await _render_calendar(message, session, classes[0][0], classes[0][1])
+        await _render_calendar(
+            message,
+            session,
+            classes[0][0],
+            classes[0][1],
+            back_callback=back_callback,
+        )
     else:
         await render_panel(
             message,

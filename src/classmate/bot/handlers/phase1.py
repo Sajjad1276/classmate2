@@ -55,25 +55,28 @@ async def _require_private_message(message: Message, state: FSMContext) -> bool:
     return True
 
 
-def dashboard_kb() -> InlineKeyboardMarkup:
+def dashboard_kb(back_callback: str | None = None) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text="📅 تقویم کلاس", callback_data="info:calendar:dashboard", style="primary"
+            )
+        ],
+        [
+            InlineKeyboardButton(text="📝 امتحانات", callback_data="info:exams:dashboard", style="primary"),
+            InlineKeyboardButton(text="📚 تکالیف", callback_data="info:homework:dashboard", style="primary"),
+        ],
+        [
+            InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports:dashboard"),
+            InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements:dashboard"),
+        ],
+        [InlineKeyboardButton(text="🔔 تنظیم اعلان‌ها", callback_data="p1:preferences")],
+        [InlineKeyboardButton(text="🔄 به‌روزرسانی", callback_data="dashboard:today")],
+    ]
+    if back_callback is not None:
+        rows.append([InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback, style="danger")])
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="📅 تقویم کلاس", callback_data="info:calendar:dashboard", style="primary"
-                )
-            ],
-            [
-                InlineKeyboardButton(text="📝 امتحانات", callback_data="info:exams:dashboard", style="primary"),
-                InlineKeyboardButton(text="📚 تکالیف", callback_data="info:homework:dashboard", style="primary"),
-            ],
-            [
-                InlineKeyboardButton(text="📋 گزارش‌های کلاسی", callback_data="info:reports:dashboard"),
-                InlineKeyboardButton(text="📣 اطلاعیه‌ها", callback_data="info:announcements:dashboard"),
-            ],
-            [InlineKeyboardButton(text="🔔 تنظیم اعلان‌ها", callback_data="p1:preferences")],
-            [InlineKeyboardButton(text="🔄 به‌روزرسانی", callback_data="dashboard:today")],
-        ]
+        inline_keyboard=rows
     )
 
 
@@ -92,7 +95,7 @@ def dashboard_empty_kb() -> InlineKeyboardMarkup:
 def announcement_kb(back_callback: str | None = None) -> InlineKeyboardMarkup:
     rows = []
     if back_callback is not None:
-        rows.append([InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback)])
+        rows.append([InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback, style="danger")])
     return InlineKeyboardMarkup(
         inline_keyboard=rows
     )
@@ -219,7 +222,13 @@ async def calendar_entry(callback: CallbackQuery, session: AsyncSession) -> None
             dashboard_empty_kb(),
         )
     elif len(classes) == 1:
-        await _render_calendar(callback.message, session, classes[0][0], classes[0][1])
+        await _render_calendar(
+            callback.message,
+            session,
+            classes[0][0],
+            classes[0][1],
+            back_callback="p1:dashboard",
+        )
     else:
         await render_panel(
             callback.message,
@@ -268,7 +277,12 @@ async def preferences_entry(callback: CallbackQuery, session: AsyncSession) -> N
 
 
 async def _render_calendar(
-    message: Message, session: AsyncSession, class_id: int, class_name: str
+    message: Message,
+    session: AsyncSession,
+    class_id: int,
+    class_name: str,
+    *,
+    back_callback: str | None = None,
 ) -> None:
     context = await get_class_with_school(session, class_id)
     if context is None:
@@ -299,7 +313,7 @@ async def _render_calendar(
             lines.append(f"• زنگ {entry.period} — {escape(subject.name)} ({time})")
     if not exams and not homeworks and not todays:
         lines.append("\nبرای این بازه رویداد آموزشی ثبت نشده است.")
-    await render_panel(message, "\n".join(lines), dashboard_kb())
+    await render_panel(message, "\n".join(lines), dashboard_kb(back_callback))
 
 
 @router.message(F.text.in_({"🔎 جست‌وجو", "جست‌وجو"}))
@@ -384,7 +398,7 @@ async def _render_preferences(
                     callback_data=f"p1:toggle:exam:{class_id}",
                 )
             ],
-            [InlineKeyboardButton(text="🏠 بازگشت", callback_data="p1:dashboard")],
+            [InlineKeyboardButton(text="‹ بازگشت", callback_data="p1:dashboard", style="danger")],
         ]
     )
     await render_panel(
@@ -429,7 +443,7 @@ async def toggle_preference(callback: CallbackQuery, session: AsyncSession) -> N
                         callback_data=f"p1:toggle:exam:{class_id}",
                     )
                 ],
-                [InlineKeyboardButton(text="🏠 بازگشت", callback_data="p1:dashboard")],
+                [InlineKeyboardButton(text="‹ بازگشت", callback_data="p1:dashboard", style="danger")],
             ]
         )
     )
@@ -441,7 +455,7 @@ async def announcements(
     message: Message,
     session: AsyncSession,
     *,
-    back_callback: str | None = None,
+    back_callback: str | None = "dashboard:today",
 ) -> None:
     if message.chat.type != "private":
         return

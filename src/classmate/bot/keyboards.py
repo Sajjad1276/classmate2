@@ -35,7 +35,7 @@ def main_menu(*, is_owner: bool = False) -> ReplyKeyboardMarkup:
         [KeyboardButton(text="❓ راهنما"), KeyboardButton(text="🆘 پشتیبانی")],
     ]
     if is_owner:
-        keyboard[3].append(KeyboardButton(text="🔴 مدیریت", style="danger"))
+        keyboard[3].append(KeyboardButton(text="⚙️ مدیریت", style="danger"))
         keyboard.append([KeyboardButton(text="🏫 کلاس‌ها", style="primary")])
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
@@ -81,7 +81,7 @@ def education_result_kb(back_callback: str | None = None) -> InlineKeyboardMarku
         return InlineKeyboardMarkup(inline_keyboard=[])
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback)],
+            [InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback, style="danger")],
         ]
     )
 
@@ -122,5 +122,5 @@ def class_picker(
     if nav:
         rows.append(nav)
     if back_callback is not None:
-        rows.append([InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback)])
+        rows.append([InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback, style="danger")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
