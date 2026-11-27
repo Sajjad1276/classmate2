@@ -11,10 +11,14 @@ from aiogram.types import (
 def main_menu(*, is_owner: bool = False) -> ReplyKeyboardMarkup:
     """Keep only the four primary entry points on the persistent keyboard."""
     keyboard = [
-        [KeyboardButton(text="📊 وضعیت امروز", style="primary")],
-        [KeyboardButton(text="📚 بخش آموزشی", style="primary")],
-        [KeyboardButton(text="🏫 کلاس‌های من")],
-        [KeyboardButton(text="🔑 ورود با کد دعوت", style="success")],
+        [
+            KeyboardButton(text="📊 وضعیت امروز", style="primary"),
+            KeyboardButton(text="📚 بخش آموزشی", style="primary"),
+        ],
+        [
+            KeyboardButton(text="🏫 کلاس‌های من"),
+            KeyboardButton(text="🔑 ورود با کد دعوت", style="success"),
+        ],
         [KeyboardButton(text="🧰 امکانات بیشتر")],
     ]
     return ReplyKeyboardMarkup(
