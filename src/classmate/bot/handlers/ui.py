@@ -260,17 +260,14 @@ async def _render_my_classes(
 
     if not buttons:
         lines.append("\nبرای این کلاس‌ها دسترسی مدیریت گروه ندارید.")
-    nav = []
     if page > 0:
-        nav.append(
+        buttons.append([
             InlineKeyboardButton(text="‹ کلاس‌های قبلی", callback_data=f"ui:classes:{page - 1}")
-        )
+        ])
     if page + 1 < total_pages:
-        nav.append(
+        buttons.append([
             InlineKeyboardButton(text="کلاس‌های بعدی ›", callback_data=f"ui:classes:{page + 1}")
-        )
-    if nav:
-        buttons.append(nav)
+        ])
     buttons.append(
         [InlineKeyboardButton(text="‹ بازگشت به منوی اصلی", callback_data="ui:home", style="danger")]
     )
@@ -331,18 +328,19 @@ async def _render_owner_classes(message: Message, session: AsyncSession, *, page
     )).all()
     buttons = [
         [InlineKeyboardButton(
-            text=f"🏫 {cls.name[:28]} · {school.name[:22]}",
+            text=f"🏫 {cls.name[:34]}",
             callback_data=f"owner:class:{cls.id}",
         )]
         for cls, year, school in rows
     ]
-    nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="‹ قبلی", callback_data=f"owner:classes:{page-1}"))
+        buttons.append([
+            InlineKeyboardButton(text="‹ قبلی", callback_data=f"owner:classes:{page-1}")
+        ])
     if (page + 1) * page_size < total:
-        nav.append(InlineKeyboardButton(text="بعدی ›", callback_data=f"owner:classes:{page+1}"))
-    if nav:
-        buttons.append(nav)
+        buttons.append([
+            InlineKeyboardButton(text="بعدی ›", callback_data=f"owner:classes:{page+1}")
+        ])
     await render_panel(
         message,
         f"🏫 <b>کلاس‌ها</b>{LINE_BREAK}{LINE_BREAK}تعداد کلاس‌های فعال: <b>{total}</b>{LINE_BREAK}"
