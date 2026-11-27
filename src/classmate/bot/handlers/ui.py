@@ -592,12 +592,29 @@ async def cb_pick(callback: CallbackQuery, session: AsyncSession) -> None:
     }.get(back_parts[0] if back_parts else None)
     user = await get_user(session, callback.from_user, private=True)
     await delete_panel(callback.message)
-    await run_view(
-        callback.message,
-        session,
-        action,
-        int(id_s),
-        user,
-        back_callback=back_callback,
-    )
+    if action == "prefs":
+        from classmate.bot.handlers.phase1 import _render_preferences
+
+        class_id = int(id_s)
+        context = await get_class_with_school(session, class_id)
+        if context is None or not await user_can_access_class(session, user, class_id):
+            await _result(callback.message, "دسترسی شما به این کلاس فعال نیست.", back_callback)
+        else:
+            await _render_preferences(
+                callback.message,
+                session,
+                user,
+                class_id,
+                context[0].name,
+                back_callback=back_callback or "ui:home",
+            )
+    else:
+        await run_view(
+            callback.message,
+            session,
+            action,
+            int(id_s),
+            user,
+            back_callback=back_callback,
+        )
     await callback.answer()

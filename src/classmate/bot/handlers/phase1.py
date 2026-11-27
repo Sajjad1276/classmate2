@@ -265,7 +265,7 @@ async def preferences_entry(callback: CallbackQuery, session: AsyncSession) -> N
             dashboard_empty_kb(),
         )
     elif len(classes) == 1:
-        await _render_preferences(callback.message, session, user, classes[0][0], classes[0][1])
+        await _render_preferences(callback.message, session, user, classes[0][0], classes[0][1], back_callback="p1:dashboard")
     else:
         await render_panel(
             callback.message,
@@ -360,7 +360,7 @@ async def search_submit(message: Message, state: FSMContext, session: AsyncSessi
     await message.answer("\n".join(lines), reply_markup=await menu_for(session, user))
 
 
-@router.message(F.text.in_({"🔔 تنظیم اعلان‌ها", "اعلان‌ها", "تنظیم اعلان‌ها"}))
+@router.message(F.text.in_({"🔔 اعلان‌ها", "🔔 تنظیم اعلان‌ها", "اعلان‌ها", "تنظیم اعلان‌ها"}))
 async def notification_settings(message: Message, session: AsyncSession) -> None:
     if message.chat.type != "private":
         return
@@ -373,31 +373,38 @@ async def notification_settings(message: Message, session: AsyncSession) -> None
         await render_panel(
             message,
             "🏫 کلاس موردنظر را انتخاب کنید:",
-            class_picker(classes, action="prefs"),
+            class_picker(classes, action="prefs", back_callback="ui:home"),
         )
         return
     await _render_preferences(message, session, user, classes[0][0], classes[0][1])
 
 
 async def _render_preferences(
-    message: Message, session: AsyncSession, user, class_id: int, class_name: str
+    message: Message,
+    session: AsyncSession,
+    user,
+    class_id: int,
+    class_name: str,
+    *,
+    back_callback: str = "ui:home",
 ) -> None:
     pref = await get_preferences(session, user.id, class_id)
+    back_token = {"ui:home": "main_menu", "p1:dashboard": "dashboard"}.get(back_callback, "main_menu")
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text=f"📚 تکالیف: {'فعال' if pref.homework_enabled else 'خاموش'}",
-                    callback_data=f"p1:toggle:hw:{class_id}",
+                    callback_data=f"p1:toggle:hw:{class_id}:{back_token}",
                 )
             ],
             [
                 InlineKeyboardButton(
                     text=f"📝 امتحانات: {'فعال' if pref.exams_enabled else 'خاموش'}",
-                    callback_data=f"p1:toggle:exam:{class_id}",
+                    callback_data=f"p1:toggle:exam:{class_id}:{back_token}",
                 )
             ],
-            [InlineKeyboardButton(text="‹ بازگشت", callback_data="p1:dashboard", style="danger")],
+            [InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback, style="danger")],
         ]
     )
     await render_panel(
@@ -411,7 +418,9 @@ async def _render_preferences(
 async def toggle_preference(callback: CallbackQuery, session: AsyncSession) -> None:
     if not await _require_private_callback(callback):
         return
-    _, _, kind, class_id_s = callback.data.split(":")
+    _, _, kind, class_id_s, *back_parts = callback.data.split(":")
+    back_token = back_parts[0] if back_parts else "dashboard"
+    back_callback = {"main_menu": "ui:home", "dashboard": "p1:dashboard"}.get(back_token, "p1:dashboard")
     user = await get_user(
         session,
         callback.from_user,
@@ -433,16 +442,16 @@ async def toggle_preference(callback: CallbackQuery, session: AsyncSession) -> N
                 [
                     InlineKeyboardButton(
                         text=f"📚 تکالیف: {'فعال' if pref.homework_enabled else 'خاموش'}",
-                        callback_data=f"p1:toggle:hw:{class_id}",
+                        callback_data=f"p1:toggle:hw:{class_id}:{back_token}",
                     )
                 ],
                 [
                     InlineKeyboardButton(
                         text=f"📝 امتحانات: {'فعال' if pref.exams_enabled else 'خاموش'}",
-                        callback_data=f"p1:toggle:exam:{class_id}",
+                        callback_data=f"p1:toggle:exam:{class_id}:{back_token}",
                     )
                 ],
-                [InlineKeyboardButton(text="‹ بازگشت", callback_data="p1:dashboard", style="danger")],
+                [InlineKeyboardButton(text="‹ بازگشت", callback_data=back_callback, style="danger")],
             ]
         )
     )

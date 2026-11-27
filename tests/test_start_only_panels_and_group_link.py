@@ -295,3 +295,27 @@ async def test_group_management_panel_reflects_registration_state(world):
     second_markup = callback.message.edit_text.await_args.kwargs["reply_markup"]
     second_labels = [button.text for row in second_markup.inline_keyboard for button in row]
     assert "🔄 تغییر گروه متصل" in second_labels
+
+
+
+@pytest.mark.asyncio
+async def test_notification_settings_from_main_menu_returns_to_main_menu(world):
+    from classmate.bot.handlers.phase1 import notification_settings
+
+    student = world["student"]
+    message = SimpleNamespace(
+        chat=SimpleNamespace(type="private"),
+        text="🔔 اعلان‌ها",
+        from_user=SimpleNamespace(
+            id=student.telegram_id,
+            username=student.username,
+            full_name=student.full_name,
+            first_name=student.full_name,
+        ),
+        answer=AsyncMock(),
+    )
+
+    await notification_settings(message, world["session"])
+    markup = message.answer.await_args.kwargs["reply_markup"]
+    buttons = [button for row in markup.inline_keyboard for button in row]
+    assert any(button.text == "‹ بازگشت" and button.callback_data == "ui:home" for button in buttons)
