@@ -207,7 +207,7 @@ async def seed_class104_plan(session: AsyncSession) -> dict[str, int] | None:
         time(23, 59, 59),
         tzinfo=zone,
     ).astimezone(timezone.utc)
-    full_body = build_class104_plan_body(datetime.now(zone).date())
+    full_body = build_class104_plan_body(datetime.now(zone).date() + timedelta(days=1))
 
     announcement = await session.scalar(
         select(Announcement)
