@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,10 +37,10 @@ async def schedule_group_invite_reminders(
 ) -> dict[str, int]:
     """Schedule at most one invite reminder per linked class every 48 hours.
 
-    Existing classes without a recoverable raw deep-link token get a 48-hour
-    transition window. At the first reminder, a new shared token is created
-    and persisted alongside its hash. Newly linked classes persist their token
-    at connection time and reuse the exact same URL for every subsequent post.
+    A linked class that has never had a recurring invite reminder queued gets
+    its first message immediately. A pending/sent invite job prevents duplicate
+    bootstrap sends. Newly linked classes mark their initial group notice as sent
+    and therefore receive the next reminder 48 hours later.
     """
     username = (bot_username or "").strip().removeprefix("@")
     if not username:
@@ -59,6 +59,15 @@ async def schedule_group_invite_reminders(
                 or_(
                     ClassGroup.member_invite_reminder_next_at.is_(None),
                     ClassGroup.member_invite_reminder_next_at <= current,
+                    and_(
+                        ClassGroup.member_invite_reminder_last_sent_at.is_(None),
+                        ~exists(
+                            select(ReminderJob.id).where(
+                                ReminderJob.class_id == ClassGroup.id,
+                                ReminderJob.entity_type == "class_invite",
+                            )
+                        ),
+                    ),
                 ),
             )
             .order_by(ClassGroup.id)
@@ -71,14 +80,14 @@ async def schedule_group_invite_reminders(
     queued = 0
     for class_group in classes:
         next_at = class_group.member_invite_reminder_next_at
-        if next_at is None:
-            class_group.member_invite_reminder_next_at = current + INVITE_REMINDER_INTERVAL
-            initialized += 1
-            continue
-
-        due_at = _as_utc(next_at)
+        due_at = _as_utc(next_at) if next_at is not None else current
         if due_at > current:
-            continue
+            # Older group links predate last_sent_at tracking. If they have no
+            # reminder job, bootstrap the first recurring invite immediately.
+            if class_group.member_invite_reminder_last_sent_at is None:
+                due_at = current
+            else:
+                continue
 
         token = class_group.member_join_code_token
         token_is_valid = bool(
