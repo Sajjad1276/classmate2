@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,6 +56,10 @@ async def schedule_group_invite_reminders(
                 ClassGroup.is_active.is_(True),
                 School.is_active.is_(True),
                 ClassGroup.group_chat_id.is_not(None),
+                or_(
+                    ClassGroup.member_invite_reminder_next_at.is_(None),
+                    ClassGroup.member_invite_reminder_next_at <= current,
+                ),
             )
             .order_by(ClassGroup.id)
             .with_for_update(skip_locked=True)
