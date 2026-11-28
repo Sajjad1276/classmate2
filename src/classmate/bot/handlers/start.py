@@ -58,12 +58,11 @@ async def cmd_start(message: Message, state: FSMContext, session: AsyncSession) 
     if join_response:
         await message.answer(join_response)
     await message.answer(
-        f"• درود بیکران 🕊 {name}، به ربات ClassMatePro خوش آمدید.\n\n"
-        f"📇 - در اینجا میتونید امور مدرسه رو به صورت حرفهای و پیشرفته مدیریت کنید.\n\n"
-        f"• آیدی شما : {username}\n\n"
-        "🪎 برای ادامه، گزینهٔ موردنظر را از پنل زیر انتخاب کنید:",
-        # Keep the existing /start copy unchanged; this is the only new
-        # affordance attached to it.
+        f"• سلام {name}، به ربات ClassMate خوش آمدید.\n\n"
+        "📚 در این ربات می‌توانید برنامهٔ کلاسی و امور آموزشی خود را پیگیری کنید.\n\n"
+        f"• نام کاربری تلگرام: {username}\n\n"
+        "🪄 برای ادامه، گزینهٔ موردنظر را از پنل زیر انتخاب کنید:",
+        # The welcome copy is kept concise and consistent with the ClassMate name.
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [
