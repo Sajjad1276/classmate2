@@ -388,10 +388,11 @@ async def main() -> None:
                     result = await seed_class104_plan(session)
             if result:
                 logger.info(
-                    "Class 104 plan seeded: class_id=%s announcement_id=%s reminder_jobs=%s group_targets=%s private_targets=%s",
+                    "Class 104 plan seeded: class_id=%s announcement_id=%s reminder_jobs=%s candidates=%s group_targets=%s private_targets=%s",
                     result["class_id"],
                     result["announcement_id"],
                     result["reminder_jobs"],
+                    result.get("candidate_reminder_jobs", 0),
                     result.get("group_targets", 0),
                     result.get("private_targets", 0),
                 )
@@ -409,9 +410,10 @@ async def main() -> None:
                                 result = await seed_class104_plan(session)
                         if result:
                             logger.info(
-                                "Class 104 plan refresh: class_id=%s reminder_jobs=%s group_targets=%s private_targets=%s",
+                                "Class 104 plan refresh: class_id=%s reminder_jobs=%s candidates=%s group_targets=%s private_targets=%s",
                                 result["class_id"],
                                 result["reminder_jobs"],
+                                result.get("candidate_reminder_jobs", 0),
                                 result.get("group_targets", 0),
                                 result.get("private_targets", 0),
                             )
