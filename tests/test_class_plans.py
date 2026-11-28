@@ -21,6 +21,14 @@ def test_plan_contains_only_the_known_items() -> None:
     assert "ریاضی" not in body
 
 
+def test_daily_reminder_excludes_the_day_it_is_sent_on() -> None:
+    # Sunday 8 Azar 1405: on that day, the next reminder must start from Monday.
+    body = build_class104_plan_body(date(2026, 11, 29))
+
+    assert "یکشنبه | ۸ آذر ۱۴۰۵" not in body
+    assert "دوشنبه | ۹ آذر ۱۴۰۵" in body
+
+
 def test_plan_refresh_hides_passed_dates() -> None:
     body = build_class104_plan_body(date(2026, 12, 1))
 
