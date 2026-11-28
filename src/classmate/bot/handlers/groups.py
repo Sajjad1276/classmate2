@@ -587,6 +587,15 @@ async def group_chat_selected(
             extra={"class_id": int(class_id), "chat_id": int(shared.chat_id)},
         )
 
+    if group_notice_sent:
+        # The initial group post already carries the same join deep link. Count
+        # it as the first delivered invite so the recurring reminder starts
+        # 48 hours after that successful Telegram send.
+        sent_at = datetime.now(timezone.utc)
+        linked_class.member_invite_reminder_last_sent_at = sent_at
+        linked_class.member_invite_reminder_next_at = sent_at + timedelta(hours=48)
+        await session.commit()
+
     confirmation = (
         "✅ <b>گروه با موفقیت ثبت شد</b>\n"
         f"🏫 کلاس: <b>{class_name}</b>\n"
