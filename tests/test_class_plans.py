@@ -16,12 +16,12 @@ def test_plan_contains_only_the_known_items() -> None:
     assert "امتحان دینی" in body
     assert "سه‌شنبه | ۱۰ آذر ۱۴۰۵" in body
     assert "تکلیف یا امتحان تازه‌ای اعلام نشده" in body
-    assert "شیمی — تدریس" not in body
+    assert "شیمی — تدریس (۲ زنگ)" in body
     assert "مرور جزوه و مطالعهٔ کتاب تا صفحهٔ ۱۶" in body
     assert "تکمیل ۳ انشا" in body
     assert "سه‌شنبه | ۲۴ آذر ۱۴۰۵" in body
     assert "امتحان عربی" in body
-    assert "ریاضی" not in body
+    assert "ریاضی — تدریس" in body
 
 
 def test_daily_reminder_excludes_the_day_it_is_sent_on() -> None:
