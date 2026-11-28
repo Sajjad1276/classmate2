@@ -1,8 +1,9 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from classmate.services.class_plans import (
     REMINDER_INTERVAL,
     build_class104_plan_body,
+    next_class104_reminder_at,
 )
 
 
@@ -56,3 +57,21 @@ def test_plan_ends_after_arabic_exam_date() -> None:
 
 def test_reminder_interval_is_eight_hours() -> None:
     assert REMINDER_INTERVAL == timedelta(hours=8)
+
+
+def test_next_reminder_is_anchored_to_last_successful_delivery() -> None:
+    first_published = datetime(2026, 11, 28, 18, 0, tzinfo=timezone.utc)
+    last_sent = datetime(2026, 11, 28, 18, 5, tzinfo=timezone.utc)
+
+    assert next_class104_reminder_at(first_published) == first_published
+    assert next_class104_reminder_at(first_published, last_sent) == (
+        last_sent + timedelta(hours=8)
+    )
+
+
+def test_plan_body_keeps_tomorrow_until_that_day_arrives() -> None:
+    saturday = build_class104_plan_body(date(2026, 11, 28))
+    sunday = build_class104_plan_body(date(2026, 11, 29))
+
+    assert "یکشنبه | ۸ آذر ۱۴۰۵" in saturday
+    assert "یکشنبه | ۸ آذر ۱۴۰۵" not in sunday
