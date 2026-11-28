@@ -75,3 +75,34 @@ def test_plan_body_keeps_tomorrow_until_that_day_arrives() -> None:
 
     assert "یکشنبه | ۸ آذر ۱۴۰۵" in saturday
     assert "یکشنبه | ۸ آذر ۱۴۰۵" not in sunday
+
+
+def test_class104_weekday_lessons_match_official_timetable() -> None:
+    body = build_class104_plan_body(date(2026, 11, 28))
+
+    monday_start = body.index("دوشنبه | ۹ آذر ۱۴۰۵")
+    tuesday_start = body.index("سه‌شنبه | ۱۰ آذر ۱۴۰۵")
+    wednesday_start = body.index("چهارشنبه | ۱۱ آذر ۱۴۰۵")
+    next_tuesday_start = body.index("سه‌شنبه | ۲۴ آذر ۱۴۰۵")
+
+    monday = body[monday_start:tuesday_start]
+    tuesday = body[tuesday_start:wednesday_start]
+    wednesday = body[wednesday_start:next_tuesday_start]
+    later_tuesday = body[next_tuesday_start:]
+
+    assert "فیزیک — تدریس" in monday
+    assert "ریاضی — تدریس" in monday
+    assert "رسانه — تدریس" in monday
+    assert "زبان — تدریس" in monday
+    assert "عربی — تدریس" not in monday
+
+    assert "دینی — تدریس" in tuesday
+    assert "شیمی — تدریس (۲ زنگ)" in tuesday
+    assert "عربی — تدریس" in tuesday
+
+    assert "آزمایشگاه — تدریس" in wednesday
+    assert "هندسه — تدریس" in wednesday
+    assert "نگارش — تدریس" in wednesday
+
+    assert "عربی — تدریس" in later_tuesday
+    assert "امتحان عربی" in later_tuesday
