@@ -49,6 +49,9 @@ jobs:
           DATABASE_URL: ${{ env.POSTGRES_TEST_URL }}
         run: alembic upgrade head
 
+      - name: Class 104 eight-hour reminder regressions
+        run: pytest -q tests/test_class_plans.py
+
       - name: Focused navigation and group-link regressions
         run: pytest -q tests/test_start_only_panels_and_group_link.py
 
