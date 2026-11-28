@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNotFound, TelegramRetryAfter
 from sqlalchemy import select, update
 
@@ -13,6 +14,8 @@ from classmate.core.enums import EntityType, OutboxStatus, RecordStatus, Reminde
 from classmate.core.logging import configure_logging
 from classmate.db.models import AcademicYear, Announcement, ClassGroup, ClassMembership, Exam, DailyReport, Homework, ReminderJob, School, TelegramOutbox, User
 from classmate.db.session import SessionFactory
+from classmate.services.group_invites import schedule_group_invite_reminders
+from classmate.services.permissions import hash_code
 from classmate.services.class_plans import seed_class104_plan
 
 logger = logging.getLogger(__name__)
@@ -69,6 +72,27 @@ async def _job_is_deliverable(session, job: ReminderJob) -> bool:
     )
     if class_group is None:
         return False
+
+    if job.entity_type == "class_invite":
+        if job.target_type != "group" or class_group.group_chat_id != job.target_id:
+            return False
+        if not job.button_text or not job.button_url:
+            return False
+        marker = "?start=join_"
+        if marker not in job.button_url:
+            return False
+        token = job.button_url.split(marker, 1)[1]
+        if not token or token != class_group.member_join_code_token:
+            return False
+        if class_group.member_join_code_hash != hash_code(token):
+            return False
+        expires_at = class_group.member_join_code_expires_at
+        if expires_at is not None:
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= datetime.now(timezone.utc):
+                return False
+        return True
 
     model = {
         EntityType.HOMEWORK.value: Homework,
@@ -135,7 +159,19 @@ async def process_once(bot: Bot) -> int:
             if not deliverable:
                 continue
             try:
-                await bot.send_message(job.target_id, job.message_text)
+                reply_markup = None
+                if job.button_text and job.button_url:
+                    reply_markup = InlineKeyboardMarkup(
+                        inline_keyboard=[[
+                            InlineKeyboardButton(text=job.button_text, url=job.button_url)
+                        ]]
+                    )
+                await bot.send_message(
+                    chat_id=job.target_id,
+                    text=job.message_text,
+                    reply_markup=reply_markup,
+                    parse_mode="HTML" if reply_markup is not None else None,
+                )
                 async with SessionFactory() as s2:
                     async with s2.begin():
                         row = await s2.get(ReminderJob, job.id)
@@ -143,6 +179,10 @@ async def process_once(bot: Bot) -> int:
                             row.status = ReminderStatus.SENT
                             row.sent_at = datetime.now(timezone.utc)
                             row.locked_at = None
+                            if row.entity_type == "class_invite":
+                                linked_class = await s2.get(ClassGroup, row.class_id)
+                                if linked_class is not None:
+                                    linked_class.member_invite_reminder_last_sent_at = row.sent_at
                 sent += 1
             except Exception as exc:
                 logger.exception("Failed to send reminder %s", job.id)
@@ -382,10 +422,15 @@ async def main() -> None:
     bot = Bot(token=token)
     logger.info("ClassMate 2 reminder worker started")
     try:
+        bot_profile = await bot.get_me()
+        bot_username = bot_profile.username or ""
         try:
             async with SessionFactory() as session:
                 async with session.begin():
                     result = await seed_class104_plan(session)
+                    invite_result = await schedule_group_invite_reminders(
+                        session, bot_username=bot_username
+                    )
             if result:
                 logger.info(
                     "Class 104 plan seeded: class_id=%s announcement_id=%s reminder_jobs=%s candidates=%s group_targets=%s private_targets=%s",
@@ -396,9 +441,15 @@ async def main() -> None:
                     result.get("group_targets", 0),
                     result.get("private_targets", 0),
                 )
+            logger.info(
+                "Group invite reminders initialized=%s queued=%s rotated=%s",
+                invite_result["initialized"],
+                invite_result["queued"],
+                invite_result["rotated"],
+            )
         except Exception:
-            # A missing or ambiguous class must not stop the standard worker.
-            logger.exception("Could not seed the Class 104 plan")
+            # Missing or ambiguous classes must not stop the standard worker.
+            logger.exception("Could not initialize ClassMate reminder schedules")
         last_plan_seed_at = datetime.now(timezone.utc)
         while True:
             try:
@@ -408,6 +459,9 @@ async def main() -> None:
                         async with SessionFactory() as session:
                             async with session.begin():
                                 result = await seed_class104_plan(session)
+                                invite_result = await schedule_group_invite_reminders(
+                                    session, bot_username=bot_username
+                                )
                         if result:
                             logger.info(
                                 "Class 104 plan refresh: class_id=%s reminder_jobs=%s candidates=%s group_targets=%s private_targets=%s",
@@ -417,8 +471,15 @@ async def main() -> None:
                                 result.get("group_targets", 0),
                                 result.get("private_targets", 0),
                             )
+                        if any(invite_result.values()):
+                            logger.info(
+                                "Group invite reminder refresh initialized=%s queued=%s rotated=%s",
+                                invite_result["initialized"],
+                                invite_result["queued"],
+                                invite_result["rotated"],
+                            )
                     except Exception:
-                        logger.exception("Could not refresh the Class 104 plan")
+                        logger.exception("Could not refresh ClassMate reminder schedules")
                     finally:
                         last_plan_seed_at = now
                 reminders_sent = await process_once(bot)
