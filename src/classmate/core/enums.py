@@ -37,6 +37,7 @@ class EntityType(StrEnum):
     HOMEWORK = "homework"
     EXAM = "exam"
     REPORT = "report"
+    ANNOUNCEMENT = "announcement"
 
 
 class OutboxStatus(StrEnum):
