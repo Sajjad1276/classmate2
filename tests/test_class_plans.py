@@ -13,6 +13,8 @@ def test_plan_contains_only_the_known_items() -> None:
     assert "جغرافیا — مطالعهٔ درس‌های ۲ و ۳" in body
     assert "امتحان زبان انگلیسی" in body
     assert "امتحان دینی" in body
+    assert "سه‌شنبه | ۱۰ آذر ۱۴۰۵" in body
+    assert "تکلیف یا امتحان تازه‌ای اعلام نشده" in body
     assert "شیمی — تدریس" not in body
     assert "مرور جزوه و مطالعهٔ کتاب تا صفحهٔ ۱۶" in body
     assert "تکمیل ۳ انشا" in body
@@ -27,6 +29,7 @@ def test_daily_reminder_excludes_the_day_it_is_sent_on() -> None:
 
     assert "یکشنبه | ۸ آذر ۱۴۰۵" not in body
     assert "دوشنبه | ۹ آذر ۱۴۰۵" in body
+    assert "سه‌شنبه | ۱۰ آذر ۱۴۰۵" in body
 
 
 def test_plan_refresh_hides_passed_dates() -> None:
@@ -34,7 +37,7 @@ def test_plan_refresh_hides_passed_dates() -> None:
 
     assert "یکشنبه | ۸ آذر ۱۴۰۵" not in body
     assert "دوشنبه | ۹ آذر ۱۴۰۵" not in body
-    assert "سه‌شنبه | ۱۰ آذر ۱۴۰۵" in body
+    assert "سه‌شنبه | ۱۰ آذر ۱۴۰۵" not in body
     assert "چهارشنبه | ۱۱ آذر ۱۴۰۵" in body
     assert "امتحان عربی" in body
 
