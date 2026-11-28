@@ -13,6 +13,7 @@ def test_plan_contains_only_the_known_items() -> None:
     assert "جغرافیا — مطالعهٔ درس‌های ۲ و ۳" in body
     assert "امتحان زبان انگلیسی" in body
     assert "امتحان دینی" in body
+    assert "شیمی — تدریس" not in body
     assert "مرور جزوه و مطالعهٔ کتاب تا صفحهٔ ۱۶" in body
     assert "تکمیل ۳ انشا" in body
     assert "سه‌شنبه | ۲۴ آذر ۱۴۰۵" in body
