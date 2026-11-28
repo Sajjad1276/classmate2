@@ -273,11 +273,28 @@ async def seed_class104_plan(session: AsyncSession) -> dict[str, int] | None:
         }
 
     targets: list[tuple[str, int, int | None]] = []
+    group_targets = 0
+    private_targets = 0
     if class_group.group_chat_id:
         targets.append(("group", int(class_group.group_chat_id), None))
+        group_targets = 1
     for member in members:
         if member.private_chat_started:
             targets.append(("private", int(member.telegram_id), member.id))
+            private_targets += 1
+    if not targets:
+        logger.warning(
+            "Class 104 plan exists but has no delivery target: group_chat_linked=%s private_started_members=%s",
+            bool(class_group.group_chat_id),
+            private_targets,
+        )
+        return {
+            "class_id": class_group.id,
+            "announcement_id": announcement.id,
+            "reminder_jobs": 0,
+            "group_targets": group_targets,
+            "private_targets": private_targets,
+        }
 
     values: list[dict[str, object]] = []
     for slot in range(first_slot, last_slot + 1):
@@ -313,4 +330,6 @@ async def seed_class104_plan(session: AsyncSession) -> dict[str, int] | None:
         "class_id": class_group.id,
         "announcement_id": announcement.id,
         "reminder_jobs": inserted,
+        "group_targets": group_targets,
+        "private_targets": private_targets,
     }
