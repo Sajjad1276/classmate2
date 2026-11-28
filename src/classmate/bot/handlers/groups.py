@@ -1,6 +1,7 @@
 """Panel-driven, permission-checked Telegram group linking."""
 
 import logging
+from datetime import datetime, timedelta, timezone
 from html import escape
 
 from aiogram import Bot, F, Router
@@ -521,6 +522,8 @@ async def group_chat_selected(
             student_code = make_code(12)
             linked_class.member_join_code_hash = hash_code(student_code)
             linked_class.member_join_code_expires_at = None
+            linked_class.member_join_code_token = student_code
+            linked_class.member_invite_reminder_next_at = datetime.now(timezone.utc) + timedelta(hours=48)
         await session.commit()
     except (TelegramAPIError, PermissionError, ValueError) as exc:
         await _return_to_group_management(
