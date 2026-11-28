@@ -253,6 +253,9 @@ async def test_group_selection_registers_automatically_and_notifies_both_chats(w
     assert class_group.group_chat_title == "گروه آزمایشی"
     assert class_group.group_link_code_hash is None
     assert class_group.member_join_code_hash
+    assert class_group.member_join_code_token
+    assert class_group.member_join_code_hash == hash_code(class_group.member_join_code_token)
+    assert class_group.member_invite_reminder_next_at is not None
     state.clear.assert_awaited_once()
     bot.send_message.assert_awaited_once()
     assert "ثبت گروه در ClassMate" in bot.send_message.await_args.kwargs["text"]
