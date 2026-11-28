@@ -90,8 +90,6 @@ def build_class104_plan_body(from_date: date | None = None) -> str:
         # Do not keep today's plan in a reminder once that date has arrived.
         if event_date <= from_date:
             continue
-        if len(items) == 1 and "تکلیف یا امتحان تازه‌ای اعلام نشده" in items[0]:
-            continue
         lines.extend(["", heading, *items])
         included += 1
     if not included:
