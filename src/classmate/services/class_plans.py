@@ -81,16 +81,20 @@ def _events() -> list[tuple[date, str, list[str]]]:
 
 
 def build_class104_plan_body(from_date: date | None = None) -> str:
-    """Build the plan using only today and future dates."""
-    start = from_date or _jalali_day(8)
+    """Show only dates after the current local day; empty days are omitted."""
+    if from_date is None:
+        from_date = datetime.now(ZoneInfo("Asia/Tehran")).date()
     lines = ["◈ برنامهٔ پیش‌رو — کلاس دهم ۱۰۴"]
+    included = 0
     for event_date, heading, items in _events():
-        if event_date < start:
+        # Do not keep today's plan in a reminder once that date has arrived.
+        if event_date <= from_date:
             continue
-        lines.append("")
-        lines.append(heading)
-        lines.extend(items)
-    if len(lines) == 1:
+        if len(items) == 1 and "تکلیف یا امتحان تازه‌ای اعلام نشده" in items[0]:
+            continue
+        lines.extend(["", heading, *items])
+        included += 1
+    if not included:
         return ""
     lines.extend(["", "ᯓ ClassMate | کلاس ۱۰۴"])
     return "\n".join(lines)
@@ -203,7 +207,7 @@ async def seed_class104_plan(session: AsyncSession) -> dict[str, int] | None:
         time(23, 59, 59),
         tzinfo=zone,
     ).astimezone(timezone.utc)
-    full_body = build_class104_plan_body(_jalali_day(8))
+    full_body = build_class104_plan_body(datetime.now(zone).date())
 
     announcement = await session.scalar(
         select(Announcement)
