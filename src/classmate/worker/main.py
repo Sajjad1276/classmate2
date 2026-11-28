@@ -388,16 +388,37 @@ async def main() -> None:
                     result = await seed_class104_plan(session)
             if result:
                 logger.info(
-                    "Class 104 plan seeded: class_id=%s announcement_id=%s reminder_jobs=%s",
+                    "Class 104 plan seeded: class_id=%s announcement_id=%s reminder_jobs=%s group_targets=%s private_targets=%s",
                     result["class_id"],
                     result["announcement_id"],
                     result["reminder_jobs"],
+                    result.get("group_targets", 0),
+                    result.get("private_targets", 0),
                 )
         except Exception:
             # A missing or ambiguous class must not stop the standard worker.
             logger.exception("Could not seed the Class 104 plan")
+        last_plan_seed_at = datetime.now(timezone.utc)
         while True:
             try:
+                now = datetime.now(timezone.utc)
+                if now - last_plan_seed_at >= timedelta(minutes=5):
+                    try:
+                        async with SessionFactory() as session:
+                            async with session.begin():
+                                result = await seed_class104_plan(session)
+                        if result:
+                            logger.info(
+                                "Class 104 plan refresh: class_id=%s reminder_jobs=%s group_targets=%s private_targets=%s",
+                                result["class_id"],
+                                result["reminder_jobs"],
+                                result.get("group_targets", 0),
+                                result.get("private_targets", 0),
+                            )
+                    except Exception:
+                        logger.exception("Could not refresh the Class 104 plan")
+                    finally:
+                        last_plan_seed_at = now
                 reminders_sent = await process_once(bot)
                 outbox_sent = await process_outbox_once(bot)
                 if reminders_sent or outbox_sent:
