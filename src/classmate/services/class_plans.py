@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import jdatetime
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -104,6 +104,17 @@ def _utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def next_class104_reminder_at(
+    published_at: datetime,
+    last_activity_at: datetime | None = None,
+) -> datetime:
+    """Return one next reminder slot, anchored to the last delivery/attempt."""
+    if last_activity_at is None:
+        return _utc(published_at)
+    return _utc(last_activity_at) + REMINDER_INTERVAL
+
+
+
 async def _find_class104(session: AsyncSession) -> tuple[ClassGroup, School] | None:
     rows = (
         await session.execute(
@@ -171,7 +182,7 @@ async def _insert_jobs(session: AsyncSession, values: list[dict[str, object]]) -
     return inserted
 
 async def seed_class104_plan(session: AsyncSession) -> dict[str, int] | None:
-    """Upsert one announcement and enqueue idempotent 8-hour reminders."""
+    """Refresh the plan and enqueue at most one reminder cycle per 8-hour interval."""
     target = await _find_class104(session)
     if target is None:
         return None
@@ -200,23 +211,48 @@ async def seed_class104_plan(session: AsyncSession) -> dict[str, int] | None:
         zone = ZoneInfo("Asia/Tehran")
 
     now = datetime.now(timezone.utc)
+    today = now.astimezone(zone).date()
     expiry = datetime.combine(
         _jalali_day(24),
         time(23, 59, 59),
         tzinfo=zone,
     ).astimezone(timezone.utc)
-    full_body = build_class104_plan_body(datetime.now(zone).date() + timedelta(days=1))
+    full_body = build_class104_plan_body(today)
 
-    announcement = await session.scalar(
-        select(Announcement)
-        .where(
-            Announcement.class_id == class_group.id,
-            Announcement.title == ANNOUNCEMENT_TITLE,
+    announcements = (
+        await session.scalars(
+            select(Announcement)
+            .where(
+                Announcement.class_id == class_group.id,
+                Announcement.title == ANNOUNCEMENT_TITLE,
+            )
+            .order_by(Announcement.id.desc())
         )
-        .order_by(Announcement.id.desc())
-        .limit(1)
-    )
-    content_changed = announcement is None
+    ).all()
+    announcement = announcements[0] if announcements else None
+
+    # Earlier parallel worker starts could create more than one plan announcement.
+    # Keep the newest record and stop every unsent reminder attached to older copies.
+    duplicate_ids = [row.id for row in announcements[1:]]
+    if duplicate_ids:
+        await session.execute(
+            update(ReminderJob)
+            .where(
+                ReminderJob.entity_type == EntityType.ANNOUNCEMENT.value,
+                ReminderJob.entity_id.in_(duplicate_ids),
+                ReminderJob.status.in_(
+                    [
+                        ReminderStatus.PENDING,
+                        ReminderStatus.RETRY,
+                        ReminderStatus.PROCESSING,
+                    ]
+                ),
+            )
+            .values(status=ReminderStatus.CANCELLED, locked_at=None)
+        )
+        for duplicate in announcements[1:]:
+            duplicate.is_active = False
+
     if announcement is None:
         announcement = Announcement(
             class_id=class_group.id,
@@ -237,42 +273,61 @@ async def seed_class104_plan(session: AsyncSession) -> dict[str, int] | None:
             or not announcement.is_active
         )
         if content_changed:
-            await session.execute(
-                update(ReminderJob)
-                .where(
-                    ReminderJob.entity_type == EntityType.ANNOUNCEMENT.value,
-                    ReminderJob.entity_id == announcement.id,
-                    ReminderJob.status.in_([ReminderStatus.PENDING, ReminderStatus.RETRY]),
-                )
-                .values(status=ReminderStatus.CANCELLED, locked_at=None)
-            )
+            # Refresh text without resetting the 8-hour delivery clock.
             announcement.body = full_body
-            announcement.published_at = now
             announcement.expires_at = expiry
             announcement.is_active = True
             await session.flush()
 
     if expiry <= now:
         announcement.is_active = False
+        await session.execute(
+            update(ReminderJob)
+            .where(
+                ReminderJob.entity_type == EntityType.ANNOUNCEMENT.value,
+                ReminderJob.entity_id == announcement.id,
+                ReminderJob.status.in_(
+                    [
+                        ReminderStatus.PENDING,
+                        ReminderStatus.RETRY,
+                        ReminderStatus.PROCESSING,
+                    ]
+                ),
+            )
+            .values(status=ReminderStatus.CANCELLED, locked_at=None)
+        )
         return {
             "class_id": class_group.id,
             "announcement_id": announcement.id,
             "reminder_jobs": 0,
+            "candidate_reminder_jobs": 0,
+            "group_targets": 0,
+            "private_targets": 0,
         }
 
-    anchor = _utc(announcement.published_at)
-    elapsed = max(0, int((now - anchor).total_seconds()))
-    if content_changed:
-        first_slot = 0
-    else:
-        first_slot = (elapsed + INTERVAL_SECONDS - 1) // INTERVAL_SECONDS
-
-    last_slot = int((expiry - anchor).total_seconds() // INTERVAL_SECONDS)
-    if first_slot > last_slot:
+    if not full_body:
+        await session.execute(
+            update(ReminderJob)
+            .where(
+                ReminderJob.entity_type == EntityType.ANNOUNCEMENT.value,
+                ReminderJob.entity_id == announcement.id,
+                ReminderJob.status.in_(
+                    [
+                        ReminderStatus.PENDING,
+                        ReminderStatus.RETRY,
+                        ReminderStatus.PROCESSING,
+                    ]
+                ),
+            )
+            .values(status=ReminderStatus.CANCELLED, locked_at=None)
+        )
         return {
             "class_id": class_group.id,
             "announcement_id": announcement.id,
             "reminder_jobs": 0,
+            "candidate_reminder_jobs": 0,
+            "group_targets": 0,
+            "private_targets": 0,
         }
 
     targets: list[tuple[str, int, int | None]] = []
@@ -285,6 +340,7 @@ async def seed_class104_plan(session: AsyncSession) -> dict[str, int] | None:
         if member.private_chat_started:
             targets.append(("private", int(member.telegram_id), member.id))
             private_targets += 1
+
     if not targets:
         logger.warning(
             "Class 104 plan exists but has no delivery target: group_chat_linked=%s private_started_members=%s",
@@ -300,34 +356,112 @@ async def seed_class104_plan(session: AsyncSession) -> dict[str, int] | None:
             "private_targets": private_targets,
         }
 
-    values: list[dict[str, object]] = []
-    for slot in range(first_slot, last_slot + 1):
-        scheduled_at = anchor + REMINDER_INTERVAL * slot
-        if scheduled_at < now - timedelta(minutes=1) or scheduled_at > expiry:
-            continue
-        local_date = scheduled_at.astimezone(zone).date()
-        body = build_class104_plan_body(local_date)
-        if not body:
-            continue
-        message = f"⌯ یادآوری برنامهٔ کلاس ۱۰۴\n\n{body}"
-        slot_ts = int(scheduled_at.timestamp())
-        for target_type, target_id, recipient_id in targets:
-            values.append(
-                {
-                    "class_id": class_group.id,
-                    "entity_type": EntityType.ANNOUNCEMENT.value,
-                    "entity_id": announcement.id,
-                    "target_type": target_type,
-                    "target_id": target_id,
-                    "message_text": message,
-                    "scheduled_at": scheduled_at,
-                    "status": ReminderStatus.PENDING,
-                    "attempts": 0,
-                    "dedupe_key": (
-                        f"classplan:{announcement.id}:{slot_ts}:{target_type}:{target_id}"
-                    ),
-                }
+    # Cancel the old bulk-prequeued backlog. New jobs use a versioned key and
+    # only represent the current 8-hour slot.
+    key_prefix = f"classplan-v2:{announcement.id}:"
+    await session.execute(
+        update(ReminderJob)
+        .where(
+            ReminderJob.entity_type == EntityType.ANNOUNCEMENT.value,
+            ReminderJob.entity_id == announcement.id,
+            ReminderJob.status.in_(
+                [
+                    ReminderStatus.PENDING,
+                    ReminderStatus.RETRY,
+                    ReminderStatus.PROCESSING,
+                ]
+            ),
+            ~ReminderJob.dedupe_key.startswith(key_prefix),
+        )
+        .values(status=ReminderStatus.CANCELLED, locked_at=None)
+    )
+
+    current_jobs = (
+        await session.scalars(
+            select(ReminderJob).where(
+                ReminderJob.entity_type == EntityType.ANNOUNCEMENT.value,
+                ReminderJob.entity_id == announcement.id,
+                ReminderJob.dedupe_key.startswith(key_prefix),
+                ReminderJob.status.in_(
+                    [
+                        ReminderStatus.PENDING,
+                        ReminderStatus.RETRY,
+                        ReminderStatus.PROCESSING,
+                    ]
+                ),
             )
+        )
+    ).all()
+    message_body = build_class104_plan_body(today)
+    message = f"⌯ یادآوری برنامهٔ کلاس ۱۰۴\n\n{message_body}"
+
+    # If this slot is already in flight, finish it; do not create another one.
+    if current_jobs:
+        for job in current_jobs:
+            if job.status in [ReminderStatus.PENDING, ReminderStatus.RETRY]:
+                job.message_text = message
+        return {
+            "class_id": class_group.id,
+            "announcement_id": announcement.id,
+            "reminder_jobs": 0,
+            "candidate_reminder_jobs": 0,
+            "group_targets": group_targets,
+            "private_targets": private_targets,
+        }
+
+    last_activity = await session.scalar(
+        select(
+            func.max(
+                func.coalesce(ReminderJob.sent_at, ReminderJob.scheduled_at)
+            )
+        ).where(
+            ReminderJob.entity_type == EntityType.ANNOUNCEMENT.value,
+            ReminderJob.entity_id == announcement.id,
+            ReminderJob.status.in_([ReminderStatus.SENT, ReminderStatus.FAILED]),
+        )
+    )
+    next_due = next_class104_reminder_at(announcement.published_at, last_activity)
+    if now < next_due:
+        return {
+            "class_id": class_group.id,
+            "announcement_id": announcement.id,
+            "reminder_jobs": 0,
+            "candidate_reminder_jobs": 0,
+            "group_targets": group_targets,
+            "private_targets": private_targets,
+        }
+
+    slot_ts = int(next_due.timestamp())
+    message_body = build_class104_plan_body(today)
+    if not message_body:
+        return {
+            "class_id": class_group.id,
+            "announcement_id": announcement.id,
+            "reminder_jobs": 0,
+            "candidate_reminder_jobs": 0,
+            "group_targets": group_targets,
+            "private_targets": private_targets,
+        }
+    message = f"⌯ یادآوری برنامهٔ کلاس ۱۰۴\n\n{message_body}"
+
+    values: list[dict[str, object]] = []
+    for target_type, target_id, _recipient_id in targets:
+        values.append(
+            {
+                "class_id": class_group.id,
+                "entity_type": EntityType.ANNOUNCEMENT.value,
+                "entity_id": announcement.id,
+                "target_type": target_type,
+                "target_id": target_id,
+                "message_text": message,
+                "scheduled_at": now,
+                "status": ReminderStatus.PENDING,
+                "attempts": 0,
+                "dedupe_key": (
+                    f"{key_prefix}{slot_ts}:{target_type}:{target_id}"
+                ),
+            }
+        )
 
     inserted = await _insert_jobs(session, values)
     return {
