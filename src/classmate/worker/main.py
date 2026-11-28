@@ -183,6 +183,9 @@ async def process_once(bot: Bot) -> int:
                                 linked_class = await s2.get(ClassGroup, row.class_id)
                                 if linked_class is not None:
                                     linked_class.member_invite_reminder_last_sent_at = row.sent_at
+                                    linked_class.member_invite_reminder_next_at = (
+                                        row.sent_at + timedelta(hours=48)
+                                    )
                 sent += 1
             except Exception as exc:
                 logger.exception("Failed to send reminder %s", job.id)
