@@ -104,6 +104,11 @@ class ClassGroup(TimestampMixin, Base):
     group_link_code_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     member_join_code_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     member_join_code_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The raw token is the public Telegram deep-link payload, retained so the same
+    # reusable class invite URL can be posted again without rotating it each time.
+    member_join_code_token: Mapped[str | None] = mapped_column(String(64))
+    member_invite_reminder_next_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    member_invite_reminder_last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
@@ -447,6 +452,8 @@ class ReminderJob(Base):
     target_type: Mapped[str] = mapped_column(String(16), nullable=False)  # group | private
     target_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     message_text: Mapped[str] = mapped_column(Text, nullable=False)
+    button_text: Mapped[str | None] = mapped_column(String(80))
+    button_url: Mapped[str | None] = mapped_column(String(512))
     scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[ReminderStatus] = mapped_column(
         Enum(ReminderStatus, name="reminder_status", native_enum=False),
