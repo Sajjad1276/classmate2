@@ -150,22 +150,24 @@ async def _insert_jobs(session: AsyncSession, values: list[dict[str, object]]) -
     for offset in range(0, len(values), 500):
         batch = values[offset : offset + 500]
         if dialect == "postgresql":
-            result = await session.execute(
+            statement = (
                 pg_insert(ReminderJob)
                 .values(batch)
                 .on_conflict_do_nothing(index_elements=[ReminderJob.dedupe_key])
+                .returning(ReminderJob.id)
             )
         elif dialect == "sqlite":
-            result = await session.execute(
+            statement = (
                 sqlite_insert(ReminderJob)
                 .values(batch)
                 .on_conflict_do_nothing(index_elements=[ReminderJob.dedupe_key])
+                .returning(ReminderJob.id)
             )
         else:
             raise RuntimeError(f"Unsupported database dialect: {dialect}")
-        inserted += max(result.rowcount or 0, 0)
+        result = await session.execute(statement)
+        inserted += len(result.scalars().all())
     return inserted
-
 
 async def seed_class104_plan(session: AsyncSession) -> dict[str, int] | None:
     """Upsert one announcement and enqueue idempotent 8-hour reminders."""
@@ -292,6 +294,7 @@ async def seed_class104_plan(session: AsyncSession) -> dict[str, int] | None:
             "class_id": class_group.id,
             "announcement_id": announcement.id,
             "reminder_jobs": 0,
+            "candidate_reminder_jobs": 0,
             "group_targets": group_targets,
             "private_targets": private_targets,
         }
@@ -330,6 +333,7 @@ async def seed_class104_plan(session: AsyncSession) -> dict[str, int] | None:
         "class_id": class_group.id,
         "announcement_id": announcement.id,
         "reminder_jobs": inserted,
+        "candidate_reminder_jobs": len(values),
         "group_targets": group_targets,
         "private_targets": private_targets,
     }
