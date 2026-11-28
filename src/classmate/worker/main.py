@@ -11,8 +11,9 @@ from sqlalchemy import select, update
 from classmate.core.config import get_settings
 from classmate.core.enums import EntityType, OutboxStatus, RecordStatus, ReminderStatus
 from classmate.core.logging import configure_logging
-from classmate.db.models import AcademicYear, ClassGroup, ClassMembership, Exam, DailyReport, Homework, ReminderJob, School, TelegramOutbox, User
+from classmate.db.models import AcademicYear, Announcement, ClassGroup, ClassMembership, Exam, DailyReport, Homework, ReminderJob, School, TelegramOutbox, User
 from classmate.db.session import SessionFactory
+from classmate.services.class_plans import seed_class104_plan
 
 logger = logging.getLogger(__name__)
 LEASE_SECONDS = 60
@@ -72,15 +73,23 @@ async def _job_is_deliverable(session, job: ReminderJob) -> bool:
     model = {
         EntityType.HOMEWORK.value: Homework,
         EntityType.EXAM.value: Exam,
+        EntityType.ANNOUNCEMENT.value: Announcement,
     }.get(job.entity_type)
     if model is None:
         return False
     record = await session.get(model, job.entity_id)
-    if (
-        record is None
-        or record.class_id != job.class_id
-        or record.status != RecordStatus.APPROVED
-    ):
+    if record is None or record.class_id != job.class_id:
+        return False
+    if job.entity_type == EntityType.ANNOUNCEMENT.value:
+        if not record.is_active:
+            return False
+        expires_at = record.expires_at
+        if expires_at is not None:
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            if expires_at <= datetime.now(timezone.utc):
+                return False
+    elif record.status != RecordStatus.APPROVED:
         return False
 
     if job.target_type == "group":
@@ -373,6 +382,20 @@ async def main() -> None:
     bot = Bot(token=token)
     logger.info("ClassMate 2 reminder worker started")
     try:
+        try:
+            async with SessionFactory() as session:
+                async with session.begin():
+                    result = await seed_class104_plan(session)
+            if result:
+                logger.info(
+                    "Class 104 plan seeded: class_id=%s announcement_id=%s reminder_jobs=%s",
+                    result["class_id"],
+                    result["announcement_id"],
+                    result["reminder_jobs"],
+                )
+        except Exception:
+            # A missing or ambiguous class must not stop the standard worker.
+            logger.exception("Could not seed the Class 104 plan")
         while True:
             try:
                 reminders_sent = await process_once(bot)
