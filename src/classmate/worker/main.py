@@ -150,7 +150,12 @@ async def process_once(bot: Bot) -> int:
             # Permissions and record state may have changed while the job waited.
             async with SessionFactory() as validation_session:
                 async with validation_session.begin():
-                    deliverable = await _job_is_deliverable(validation_session, job)
+                    current_job = await validation_session.get(ReminderJob, job.id)
+                    deliverable = (
+                        current_job is not None
+                        and current_job.status == ReminderStatus.PROCESSING
+                        and await _job_is_deliverable(validation_session, current_job)
+                    )
                     if not deliverable:
                         row = await validation_session.get(ReminderJob, job.id)
                         if row and row.status == ReminderStatus.PROCESSING:
